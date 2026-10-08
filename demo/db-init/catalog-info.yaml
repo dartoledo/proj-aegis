@@ -1,0 +1,10 @@
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: aegis-db
+  description: The primary PostgreSQL database storing CIAM metadata
+  annotations:
+    backstage.io/kubernetes-label-selector: 'app=db'
+spec:
+  type: database
+  owner: team-aegis

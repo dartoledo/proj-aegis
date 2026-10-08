@@ -1,0 +1,11 @@
+apiVersion: backstage.io/v1alpha1
+kind: Group
+metadata:
+  name: team-aegis
+  description: The core team responsible for Project Aegis
+spec:
+  type: team
+  profile:
+    displayName: Team Aegis
+    email: team-aegis@example.com
+  children: []

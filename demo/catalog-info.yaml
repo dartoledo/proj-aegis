@@ -1,0 +1,12 @@
+apiVersion: backstage.io/v1alpha1
+kind: Location
+metadata:
+  name: aegis-demo-system
+  description: Master Location file for importing the entire Aegis Demo System
+spec:
+  targets:
+    - ./ui/catalog-info.yaml
+    - ./auth/catalog-info.yaml
+    - ./backend/catalog-info.yaml
+    - ./db-init/catalog-info.yaml
+    - ./org/catalog-info.yaml

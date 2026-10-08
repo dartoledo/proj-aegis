@@ -1,0 +1,17 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: aegis-backend
+  description: Core backend service that connects to the database and serves CIAM data
+  annotations:
+    backstage.io/kubernetes-label-selector: 'app=backend'
+    backstage.io/techdocs-ref: dir:.
+    sonarqube.org/project-key: aegis-backend
+    github.com/project-slug: internal-org/aegis-backend
+spec:
+  type: service
+  lifecycle: experimental
+  owner: team-aegis
+  dependsOn:
+    - component:aegis-auth
+    - resource:aegis-db

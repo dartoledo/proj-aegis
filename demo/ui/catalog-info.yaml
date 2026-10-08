@@ -1,0 +1,15 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: aegis-ui
+  description: The stunning frontend interface for Project Aegis
+  annotations:
+    backstage.io/kubernetes-label-selector: 'app=ui'
+    backstage.io/techdocs-ref: dir:.
+spec:
+  type: website
+  lifecycle: experimental
+  owner: team-aegis
+  dependsOn:
+    - component:aegis-auth
+    - component:aegis-backend
