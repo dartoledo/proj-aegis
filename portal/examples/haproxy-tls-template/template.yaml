@@ -99,8 +99,12 @@ spec:
 
   output:
     text:
-      - title: HAProxy Certificate Updated Successfully
+      - title: HAProxy Certificate Updated & Verified (Old vs. New SSL Diff)
         content: |
-          - **New Version / Serial:** `${{ steps['prepare-and-validate-pem'].output.serialNumber }}`
-          - **New Expiry Date:** `${{ steps['prepare-and-validate-pem'].output.expiryDate }}`
-          - **Live Verification:** Passed on `https://hello.internal:443`
+          - **New Version / Serial:** `${{ steps['verify-live-handshake'].output.verifiedSerial }}`
+          - **SHA-256 Fingerprint:** `${{ steps['verify-live-handshake'].output.fingerprint256 }}`
+          - **New Expiry Date:** `${{ steps['verify-live-handshake'].output.expiryDate }}` (`${{ steps['verify-live-handshake'].output.daysRemaining }}` days remaining)
+          - **Negotiated TLS Cipher:** `${{ steps['verify-live-handshake'].output.tlsProtocol }} / ${{ steps['verify-live-handshake'].output.cipherName }}`
+          - **Live HTTPS Backend Probe (`/healthz`):** `HTTP ${{ steps['verify-live-handshake'].output.httpStatus }} OK`
+
+          ${{ steps['verify-live-handshake'].output.sslDiffMarkdown }}

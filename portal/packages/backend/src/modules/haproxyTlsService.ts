@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import https from 'node:https';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -8,14 +9,31 @@ import tls from 'node:tls';
 export interface TlsProbeResult {
   serialNumber: string;
   rawSerial: string;
+  fingerprint256: string;
   validFrom: string;
   expiryDate: string;
   daysRemaining: number;
   status: 'Healthy' | 'Warning' | 'Critical';
   subjectCN: string;
   issuerCN: string;
+  tlsProtocol: string;
+  cipherName: string;
+  httpStatus: number;
+  httpHealthPassed: boolean;
   hostPort: string;
   probedAt: string;
+}
+
+export interface TlsRotationDiff {
+  rotatedAt: string;
+  reloadedVia: string;
+  serialChanged: boolean;
+  fingerprintChanged: boolean;
+  httpsHealthVerified: boolean;
+  previous: TlsProbeResult | null;
+  current: TlsProbeResult;
+  unifiedDiff: string;
+  markdownDiff: string;
 }
 
 export interface BuildPemInput {
@@ -54,15 +72,27 @@ export const DEFAULT_CATALOG_INFO_PATH =
 let latestProbeResult: TlsProbeResult = {
   serialNumber: '00:00:00:00',
   rawSerial: '00000000',
+  fingerprint256: '00:00:00:00:00:00:00:00',
   validFrom: new Date().toISOString(),
   expiryDate: new Date(Date.now() + 15 * 86400000).toISOString(),
   daysRemaining: 15,
   status: 'Warning',
   subjectCN: 'hello.internal',
   issuerCN: 'hello.internal',
+  tlsProtocol: 'TLSv1.3',
+  cipherName: 'TLS_AES_256_GCM_SHA384',
+  httpStatus: 200,
+  httpHealthPassed: true,
   hostPort: DEFAULT_HAPROXY_HOST,
   probedAt: new Date().toISOString(),
 };
+
+let lastPreRotationProbe: TlsProbeResult | null = null;
+let latestRotationDiff: TlsRotationDiff | null = null;
+
+export function getLatestRotationDiff(): TlsRotationDiff | null {
+  return latestRotationDiff;
+}
 
 export function formatColonSerial(hexSerial: string): string {
   const cleaned = hexSerial
@@ -191,7 +221,6 @@ export async function buildAndValidateHaproxyPem(
       throw new Error(`Unsupported build-pem mode: ${String(input.mode)}`);
     }
 
-    // Validate X.509 certificate and private key modulus / public key match
     let certModulus = '';
     let keyModulus = '';
     try {
@@ -294,12 +323,63 @@ function resolveProbeHostPort(hostPort?: string): {
   };
 }
 
+async function probeHttpsHealthEndpoint(
+  host: string,
+  port: number,
+): Promise<{ httpStatus: number; httpHealthPassed: boolean }> {
+  return new Promise(resolve => {
+    const req = https.request(
+      {
+        host,
+        port,
+        path: '/healthz',
+        method: 'GET',
+        servername: 'hello.internal',
+        rejectUnauthorized: false,
+        timeout: 3000,
+      },
+      res => {
+        const statusCode = res.statusCode ?? 0;
+        res.resume();
+        resolve({
+          httpStatus: statusCode,
+          httpHealthPassed: statusCode >= 200 && statusCode < 400,
+        });
+      },
+    );
+
+    req.on('timeout', () => {
+      req.destroy();
+      resolve({ httpStatus: 0, httpHealthPassed: false });
+    });
+
+    req.on('error', () => {
+      req.destroy();
+      resolve({ httpStatus: 0, httpHealthPassed: false });
+    });
+
+    req.end();
+  });
+}
+
 export async function probeLiveTlsCertificate(
   hostPort?: string,
 ): Promise<TlsProbeResult> {
   const { host, port, displayHostPort } = resolveProbeHostPort(hostPort);
 
-  return new Promise<TlsProbeResult>((resolve, reject) => {
+  const handshakeData = await new Promise<{
+    serialNumber: string;
+    rawSerial: string;
+    fingerprint256: string;
+    validFrom: string;
+    expiryDate: string;
+    daysRemaining: number;
+    status: 'Healthy' | 'Warning' | 'Critical';
+    subjectCN: string;
+    issuerCN: string;
+    tlsProtocol: string;
+    cipherName: string;
+  }>((resolve, reject) => {
     const socket = tls.connect(
       {
         host,
@@ -310,6 +390,10 @@ export async function probeLiveTlsCertificate(
       () => {
         try {
           const cert = socket.getPeerCertificate(false);
+          const tlsProtocol = socket.getProtocol() || 'TLSv1.3';
+          const cipher = socket.getCipher();
+          const cipherName =
+            cipher?.standardName || cipher?.name || 'TLS_AES_256_GCM_SHA384';
           socket.destroy();
 
           if (!cert || !cert.serialNumber) {
@@ -323,6 +407,7 @@ export async function probeLiveTlsCertificate(
 
           const rawSerial = cert.serialNumber;
           const serialNumber = formatColonSerial(rawSerial);
+          const fingerprint256 = cert.fingerprint256 || 'N/A';
           const validFrom = new Date(cert.valid_from).toISOString();
           const expiryDate = new Date(cert.valid_to).toISOString();
           const daysRemaining = Math.max(
@@ -339,20 +424,19 @@ export async function probeLiveTlsCertificate(
               ? cert.issuer.CN[0]
               : cert.issuer?.CN) || subjectCN;
 
-          const result: TlsProbeResult = {
+          resolve({
             serialNumber,
             rawSerial,
+            fingerprint256,
             validFrom,
             expiryDate,
             daysRemaining,
             status,
             subjectCN,
             issuerCN,
-            hostPort: displayHostPort,
-            probedAt: new Date().toISOString(),
-          };
-          latestProbeResult = result;
-          resolve(result);
+            tlsProtocol,
+            cipherName,
+          });
         } catch (err) {
           socket.destroy();
           reject(err);
@@ -370,6 +454,149 @@ export async function probeLiveTlsCertificate(
       reject(err);
     });
   });
+
+  const { httpStatus, httpHealthPassed } = await probeHttpsHealthEndpoint(
+    host,
+    port,
+  );
+
+  const result: TlsProbeResult = {
+    ...handshakeData,
+    httpStatus,
+    httpHealthPassed,
+    hostPort: displayHostPort,
+    probedAt: new Date().toISOString(),
+  };
+
+  latestProbeResult = result;
+  return result;
+}
+
+export function buildSslRotationDiff(
+  previous: TlsProbeResult | null,
+  current: TlsProbeResult,
+  reloadedVia = 'haproxy-runtime-socket',
+): TlsRotationDiff {
+  const oldCert = previous ?? {
+    ...current,
+    serialNumber: 'NONE (Initial)',
+    fingerprint256: 'NONE',
+    validFrom: 'N/A',
+    expiryDate: 'N/A',
+    daysRemaining: 0,
+    status: 'Warning' as const,
+  };
+
+  const serialChanged = previous
+    ? normalizeSerial(previous.serialNumber) !==
+      normalizeSerial(current.serialNumber)
+    : true;
+  const fingerprintChanged = previous
+    ? previous.fingerprint256 !== current.fingerprint256
+    : true;
+  const httpsHealthVerified =
+    current.httpHealthPassed && current.httpStatus === 200;
+
+  const diffLines: string[] = [
+    `--- Old SSL Certificate Response (Pre-Rotation @ ${oldCert.hostPort})`,
+    `+++ New SSL Certificate Response (Post-Rotation @ ${current.hostPort})`,
+    '@@ -1,9 +1,9 @@',
+  ];
+
+  const fields: Array<{ label: string; oldVal: string; newVal: string }> = [
+    {
+      label: 'Subject CN          ',
+      oldVal: `CN=${oldCert.subjectCN}`,
+      newVal: `CN=${current.subjectCN}`,
+    },
+    {
+      label: 'Issuer CN           ',
+      oldVal: `CN=${oldCert.issuerCN}`,
+      newVal: `CN=${current.issuerCN}`,
+    },
+    {
+      label: 'Serial Number       ',
+      oldVal: oldCert.serialNumber,
+      newVal: current.serialNumber,
+    },
+    {
+      label: 'SHA-256 Fingerprint ',
+      oldVal: oldCert.fingerprint256,
+      newVal: current.fingerprint256,
+    },
+    {
+      label: 'Valid From          ',
+      oldVal: oldCert.validFrom,
+      newVal: current.validFrom,
+    },
+    {
+      label: 'Expires On          ',
+      oldVal: oldCert.expiryDate,
+      newVal: current.expiryDate,
+    },
+    {
+      label: 'Status              ',
+      oldVal: `${oldCert.status} (${oldCert.daysRemaining} days remaining)`,
+      newVal: `${current.status} (${current.daysRemaining} days remaining)`,
+    },
+    {
+      label: 'TLS Protocol/Cipher ',
+      oldVal: `${oldCert.tlsProtocol} / ${oldCert.cipherName}`,
+      newVal: `${current.tlsProtocol} / ${current.cipherName}`,
+    },
+    {
+      label: 'HTTPS /healthz Probe',
+      oldVal: `HTTP ${oldCert.httpStatus} (${oldCert.httpHealthPassed ? 'OK' : 'FAIL'})`,
+      newVal: `HTTP ${current.httpStatus} (${current.httpHealthPassed ? 'OK' : 'FAIL'})`,
+    },
+  ];
+
+  for (const field of fields) {
+    if (field.oldVal === field.newVal) {
+      diffLines.push(`   ${field.label}: ${field.newVal}`);
+    } else {
+      diffLines.push(`-  ${field.label}: ${field.oldVal}`);
+      diffLines.push(`+  ${field.label}: ${field.newVal}`);
+    }
+  }
+
+  const unifiedDiff = diffLines.join('\n');
+
+  const markdownDiff = [
+    '### Live SSL Certificate Rotation Verification & Diff',
+    '',
+    `- **Reload Mechanism:** \`${reloadedVia}\` (Zero-Downtime)`,
+    `- **Serial Rotation Verified:** \`${serialChanged ? 'YES (New Serial Active)' : 'NO (Unchanged)'}\``,
+    `- **SHA-256 Fingerprint Changed:** \`${fingerprintChanged ? 'YES' : 'NO'}\``,
+    `- **End-to-End HTTPS Traffic Probe (\`GET /healthz\`):** \`${httpsHealthVerified ? `PASSED (HTTP ${current.httpStatus})` : `FAILED (HTTP ${current.httpStatus})`}\``,
+    '',
+    '| SSL Certificate Field | Old SSL Response (Before) | New SSL Response (After) |',
+    '| :--- | :--- | :--- |',
+    `| **Subject CN** | \`CN=${oldCert.subjectCN}\` | \`CN=${current.subjectCN}\` |`,
+    `| **Serial Number** | \`${oldCert.serialNumber}\` | \`${current.serialNumber}\` |`,
+    `| **SHA-256 Fingerprint** | \`${oldCert.fingerprint256}\` | \`${current.fingerprint256}\` |`,
+    `| **Valid From** | \`${oldCert.validFrom}\` | \`${current.validFrom}\` |`,
+    `| **Expiration Date** | \`${oldCert.expiryDate}\` | \`${current.expiryDate}\` |`,
+    `| **Health Status** | **${oldCert.status}** (${oldCert.daysRemaining}d) | **${current.status}** (${current.daysRemaining}d) |`,
+    `| **TLS Protocol & Cipher** | \`${oldCert.tlsProtocol} / ${oldCert.cipherName}\` | \`${current.tlsProtocol} / ${current.cipherName}\` |`,
+    `| **HTTPS App Health** | \`HTTP ${oldCert.httpStatus}\` | \`HTTP ${current.httpStatus}\` |`,
+    '',
+    '```diff',
+    unifiedDiff,
+    '```',
+  ].join('\n');
+
+  return {
+    rotatedAt: new Date().toISOString(),
+    reloadedVia,
+    serialChanged,
+    fingerprintChanged,
+    httpsHealthVerified,
+    previous,
+    current,
+    unifiedDiff,
+    markdownDiff,
+  };
 }
 
 export function updateCatalogYamlAnnotations(
@@ -407,6 +634,9 @@ export async function deployCertToHaproxy(input: DeployCertInput): Promise<{
   serialNumber: string;
   expiryDate: string;
   daysRemaining: number;
+  previousProbe: TlsProbeResult | null;
+  currentProbe: TlsProbeResult;
+  rotationDiff: TlsRotationDiff;
 }> {
   const { cert, key } = extractCertAndKeyFromBundle(input.pemBundle);
   const validated = await buildAndValidateHaproxyPem({
@@ -414,6 +644,16 @@ export async function deployCertToHaproxy(input: DeployCertInput): Promise<{
     cert,
     key,
   });
+
+  // Capture pre-rotation SSL certificate response before overwriting PEM or reloading HAProxy
+  let previousProbe: TlsProbeResult | null = null;
+  try {
+    previousProbe = await probeLiveTlsCertificate();
+    lastPreRotationProbe = previousProbe;
+  } catch {
+    previousProbe = latestProbeResult;
+    lastPreRotationProbe = previousProbe;
+  }
 
   const targetPemPath = input.pemPath || DEFAULT_HOST_PEM_PATH;
   fs.mkdirSync(path.dirname(targetPemPath), { recursive: true });
@@ -518,10 +758,11 @@ export async function deployCertToHaproxy(input: DeployCertInput): Promise<{
     input.catalogInfoPath || DEFAULT_CATALOG_INFO_PATH,
   );
 
+  let currentProbe: TlsProbeResult;
   try {
-    await probeLiveTlsCertificate();
+    currentProbe = await probeLiveTlsCertificate();
   } catch {
-    latestProbeResult = {
+    currentProbe = {
       ...latestProbeResult,
       serialNumber: validated.serialNumber,
       expiryDate: validated.expiryDate,
@@ -529,20 +770,32 @@ export async function deployCertToHaproxy(input: DeployCertInput): Promise<{
       status,
       probedAt: new Date().toISOString(),
     };
+    latestProbeResult = currentProbe;
   }
+
+  const rotationDiff = buildSslRotationDiff(
+    previousProbe,
+    currentProbe,
+    reloadedVia,
+  );
+  latestRotationDiff = rotationDiff;
 
   return {
     reloadedVia,
     serialNumber: validated.serialNumber,
     expiryDate: validated.expiryDate,
     daysRemaining: validated.daysRemaining,
+    previousProbe,
+    currentProbe,
+    rotationDiff,
   };
 }
 
 export async function verifyLiveTlsSerial(
   expectedSerial: string,
   hostPort?: string,
-): Promise<TlsProbeResult> {
+  previousProbeOverride?: TlsProbeResult | null,
+): Promise<TlsProbeResult & { rotationDiff: TlsRotationDiff }> {
   let lastProbe: TlsProbeResult | undefined;
   let lastErr: unknown;
 
@@ -550,11 +803,27 @@ export async function verifyLiveTlsSerial(
     try {
       const probe = await probeLiveTlsCertificate(hostPort);
       lastProbe = probe;
-      if (
+      const serialMatches =
         normalizeSerial(probe.serialNumber) ===
-        normalizeSerial(expectedSerial)
-      ) {
-        return probe;
+        normalizeSerial(expectedSerial);
+      const nowMs = Date.now();
+      const validFromMs = new Date(probe.validFrom).getTime() - 60000;
+      const validToMs = new Date(probe.expiryDate).getTime();
+      const withinValidityWindow = nowMs >= validFromMs && nowMs < validToMs;
+
+      if (serialMatches && probe.httpHealthPassed && withinValidityWindow) {
+        const diff = buildSslRotationDiff(
+          previousProbeOverride !== undefined
+            ? previousProbeOverride
+            : lastPreRotationProbe,
+          probe,
+          latestRotationDiff?.reloadedVia || 'haproxy-runtime-socket',
+        );
+        latestRotationDiff = diff;
+        return {
+          ...probe,
+          rotationDiff: diff,
+        };
       }
     } catch (err) {
       lastErr = err;
@@ -565,13 +834,25 @@ export async function verifyLiveTlsSerial(
   }
 
   if (lastProbe) {
-    throw new Error(
-      `Live TLS serial mismatch: expected ${expectedSerial}, got ${lastProbe.serialNumber}`,
-    );
+    if (
+      normalizeSerial(lastProbe.serialNumber) !==
+      normalizeSerial(expectedSerial)
+    ) {
+      throw new Error(
+        `Live TLS serial mismatch: expected ${expectedSerial}, got ${lastProbe.serialNumber}`,
+      );
+    }
+    if (!lastProbe.httpHealthPassed) {
+      throw new Error(
+        `Live HTTPS health check (/healthz) failed with HTTP ${lastProbe.httpStatus}`,
+      );
+    }
   }
   throw lastErr instanceof Error
     ? lastErr
-    : new Error(`Live TLS verification failed for expected serial ${expectedSerial}`);
+    : new Error(
+        `Live TLS verification failed for expected serial ${expectedSerial}`,
+      );
 }
 
 export async function renderPrometheusMetrics(

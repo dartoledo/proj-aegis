@@ -17,6 +17,7 @@ import express from 'express';
 import {
   buildAndValidateHaproxyPem,
   deployCertToHaproxy,
+  getLatestRotationDiff,
   probeLiveTlsCertificate,
   renderPrometheusMetrics,
   updateCatalogYamlAnnotations,
@@ -95,7 +96,7 @@ function createDeployCertTemplateAction() {
   return createTemplateAction({
     id: 'resiliency:haproxy:deploy-cert',
     description:
-      'Writes the validated PEM bundle and hot-reloads HAProxy TLS without dropping connections.',
+      'Captures pre-rotation SSL state, writes the validated PEM bundle, and hot-reloads HAProxy TLS without dropping connections.',
     schema: {
       input: {
         entityRef: z =>
@@ -113,6 +114,16 @@ function createDeployCertTemplateAction() {
           z.string().describe('Mechanism used to hot-reload HAProxy'),
         serialNumber: z => z.string().describe('Deployed certificate serial'),
         expiryDate: z => z.string().describe('Deployed certificate expiry'),
+        previousSerial: z =>
+          z.string().describe('Pre-rotation certificate serial number'),
+        previousExpiry: z =>
+          z.string().describe('Pre-rotation certificate expiration date'),
+        previousFingerprint: z =>
+          z.string().describe('Pre-rotation SHA-256 fingerprint'),
+        previousDaysRemaining: z =>
+          z.number().describe('Pre-rotation days remaining'),
+        previousStatus: z =>
+          z.string().describe('Pre-rotation certificate health status'),
       },
     },
     async handler(ctx) {
@@ -127,13 +138,39 @@ function createDeployCertTemplateAction() {
         pemBundle: ctx.input.pemBundle,
       });
 
+      if (deployed.previousProbe) {
+        ctx.logger.info(
+          `Captured Old SSL Certificate before rotation: serial=${deployed.previousProbe.serialNumber}, fingerprint=${deployed.previousProbe.fingerprint256}, expiry=${deployed.previousProbe.expiryDate} (${deployed.previousProbe.daysRemaining}d, ${deployed.previousProbe.status})`,
+        );
+      }
+
       ctx.logger.info(
-        `HAProxy TLS certificate hot-reloaded via ${deployed.reloadedVia} (serial=${deployed.serialNumber}, expiry=${deployed.expiryDate})`,
+        `HAProxy TLS certificate hot-reloaded via ${deployed.reloadedVia} (new serial=${deployed.serialNumber}, expiry=${deployed.expiryDate})`,
       );
 
       ctx.output('reloadedVia', deployed.reloadedVia);
       ctx.output('serialNumber', deployed.serialNumber);
       ctx.output('expiryDate', deployed.expiryDate);
+      ctx.output(
+        'previousSerial',
+        deployed.previousProbe?.serialNumber || 'NONE',
+      );
+      ctx.output(
+        'previousExpiry',
+        deployed.previousProbe?.expiryDate || 'N/A',
+      );
+      ctx.output(
+        'previousFingerprint',
+        deployed.previousProbe?.fingerprint256 || 'N/A',
+      );
+      ctx.output(
+        'previousDaysRemaining',
+        deployed.previousProbe?.daysRemaining ?? 0,
+      );
+      ctx.output(
+        'previousStatus',
+        deployed.previousProbe?.status || 'Warning',
+      );
     },
   });
 }
@@ -142,7 +179,7 @@ function createVerifyTlsTemplateAction() {
   return createTemplateAction({
     id: 'resiliency:haproxy:verify-tls',
     description:
-      'Performs a live TLS handshake against HAProxy and verifies the active certificate serial number matches expectedSerial.',
+      'Performs a live TLS handshake + HTTPS /healthz verification against HAProxy, confirms the active certificate serial matches expectedSerial, and outputs a diff between the Old and New SSL certificate responses.',
     schema: {
       input: {
         expectedSerial: z =>
@@ -160,23 +197,58 @@ function createVerifyTlsTemplateAction() {
           z.string().describe('Live expiration timestamp observed'),
         daysRemaining: z =>
           z.number().describe('Live days remaining until expiration'),
+        fingerprint256: z =>
+          z.string().describe('Live SHA-256 certificate fingerprint'),
+        tlsProtocol: z => z.string().describe('Negotiated TLS protocol'),
+        cipherName: z => z.string().describe('Negotiated TLS cipher suite'),
+        httpStatus: z =>
+          z.number().describe('HTTP status from HTTPS /healthz probe'),
+        sslUnifiedDiff: z =>
+          z
+            .string()
+            .describe('Unified diff comparing Old vs New SSL certificate'),
+        sslDiffMarkdown: z =>
+          z
+            .string()
+            .describe(
+              'Markdown summary table and unified diff of Old vs New SSL certificate',
+            ),
       },
     },
     async handler(ctx) {
       ctx.logger.info(
         `Probing live HAProxy TLS endpoint to verify serial=${ctx.input.expectedSerial}...`,
       );
-      const probe = await verifyLiveTlsSerial(
+      const verified = await verifyLiveTlsSerial(
         ctx.input.expectedSerial,
         ctx.input.hostPort,
       );
+
       ctx.logger.info(
-        `Live TLS handshake verified! Active serial=${probe.serialNumber}, status=${probe.status}, daysRemaining=${probe.daysRemaining}`,
+        `[PASS] X.509 Serial Match: ${verified.serialNumber} (expected ${ctx.input.expectedSerial})`,
+      );
+      ctx.logger.info(
+        `[PASS] SHA-256 Fingerprint: ${verified.fingerprint256}`,
+      );
+      ctx.logger.info(
+        `[PASS] TLS Handshake Protocol & Cipher: ${verified.tlsProtocol} / ${verified.cipherName}`,
+      );
+      ctx.logger.info(
+        `[PASS] HTTPS Backend Health Probe (/healthz): HTTP ${verified.httpStatus} (OK=${verified.httpHealthPassed})`,
+      );
+      ctx.logger.info(
+        `SSL Certificate Diff (Old vs. New):\n${verified.rotationDiff.unifiedDiff}`,
       );
 
-      ctx.output('verifiedSerial', probe.serialNumber);
-      ctx.output('expiryDate', probe.expiryDate);
-      ctx.output('daysRemaining', probe.daysRemaining);
+      ctx.output('verifiedSerial', verified.serialNumber);
+      ctx.output('expiryDate', verified.expiryDate);
+      ctx.output('daysRemaining', verified.daysRemaining);
+      ctx.output('fingerprint256', verified.fingerprint256);
+      ctx.output('tlsProtocol', verified.tlsProtocol);
+      ctx.output('cipherName', verified.cipherName);
+      ctx.output('httpStatus', verified.httpStatus);
+      ctx.output('sslUnifiedDiff', verified.rotationDiff.unifiedDiff);
+      ctx.output('sslDiffMarkdown', verified.rotationDiff.markdownDiff);
     },
   });
 }
@@ -277,7 +349,6 @@ class HaproxyTlsLiveProbeProcessor implements CatalogProcessor {
           },
         };
       } catch {
-        // Keep existing catalog annotations if live sandbox is unreachable
         return entity;
       }
     }
@@ -327,7 +398,10 @@ export const resiliencyTlsPlugin = createBackendPlugin({
         router.get('/status', async (_req, res) => {
           try {
             const probe = await probeLiveTlsCertificate();
-            res.status(200).json(probe);
+            res.status(200).json({
+              ...probe,
+              rotationDiff: getLatestRotationDiff(),
+            });
           } catch (err) {
             res.status(503).json({
               error:

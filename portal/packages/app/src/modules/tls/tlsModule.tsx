@@ -4,12 +4,34 @@ import { EntityCardBlueprint } from '@backstage/plugin-catalog-react/alpha';
 import { useEntity } from '@backstage/plugin-catalog-react';
 import { InfoCard, LinkButton } from '@backstage/core-components';
 
+interface TlsRotationDiff {
+  rotatedAt: string;
+  reloadedVia: string;
+  serialChanged: boolean;
+  fingerprintChanged: boolean;
+  httpsHealthVerified: boolean;
+  previous: {
+    serialNumber: string;
+    expiryDate: string;
+    daysRemaining: number;
+    status: string;
+    fingerprint256?: string;
+  } | null;
+  unifiedDiff: string;
+}
+
 interface LiveTlsStatus {
   serialNumber: string;
+  fingerprint256?: string;
   expiryDate: string;
   daysRemaining: number;
   status: 'Healthy' | 'Warning' | 'Critical';
+  tlsProtocol?: string;
+  cipherName?: string;
+  httpStatus?: number;
+  httpHealthPassed?: boolean;
   hostPort: string;
+  rotationDiff?: TlsRotationDiff | null;
 }
 
 const ROTATE_CERT_URL =
@@ -90,6 +112,7 @@ const HaproxyTlsResiliencyCard = () => {
     '/etc/haproxy/certs/hello-world.pem';
 
   const colors = statusBadgeColor(status);
+  const rotationDiff = liveStatus?.rotationDiff;
 
   return (
     <InfoCard title="HAProxy Edge TLS Certificate Resiliency">
@@ -122,15 +145,65 @@ const HaproxyTlsResiliencyCard = () => {
         <div>
           <strong>Version / Serial:</strong> <code>{version}</code>
         </div>
+        {liveStatus?.fingerprint256 && (
+          <div>
+            <strong>SHA-256 Fingerprint:</strong>{' '}
+            <code style={{ fontSize: '0.78rem' }}>
+              {liveStatus.fingerprint256}
+            </code>
+          </div>
+        )}
         <div>
           <strong>Expiration Date:</strong> <code>{expiry}</code>
         </div>
+        {liveStatus?.tlsProtocol && (
+          <div>
+            <strong>TLS Handshake &amp; Health:</strong>{' '}
+            <code>
+              {liveStatus.tlsProtocol} / {liveStatus.cipherName} (HTTPS /healthz:{' '}
+              HTTP {liveStatus.httpStatus}{' '}
+              {liveStatus.httpHealthPassed ? 'OK' : 'FAIL'})
+            </code>
+          </div>
+        )}
         <div>
           <strong>HAProxy Endpoint:</strong> <code>https://{haproxyHost}</code>
         </div>
         <div>
           <strong>PEM Bundle Path:</strong> <code>{pemPath}</code>
         </div>
+
+        {rotationDiff?.previous && (
+          <div
+            style={{
+              marginTop: '6px',
+              padding: '10px',
+              backgroundColor: '#1e1e1e',
+              color: '#d4d4d4',
+              borderRadius: '6px',
+              fontSize: '0.78rem',
+              overflowX: 'auto',
+            }}
+          >
+            <div
+              style={{
+                fontWeight: 700,
+                marginBottom: '6px',
+                color: '#81c784',
+              }}
+            >
+              Last Certificate Rotation Verified (
+              {rotationDiff.serialChanged
+                ? 'Serial Rotated & Verified'
+                : 'Verified'}{' '}
+              via {rotationDiff.reloadedVia})
+            </div>
+            <pre style={{ margin: 0, fontFamily: 'monospace' }}>
+              {rotationDiff.unifiedDiff}
+            </pre>
+          </div>
+        )}
+
         <div
           style={{
             display: 'flex',
