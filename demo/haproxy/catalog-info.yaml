@@ -1,0 +1,51 @@
+apiVersion: backstage.io/v1alpha1
+kind: Group
+metadata:
+  name: resiliency-group
+  description: Platform Resiliency & Edge TLS Reliability Engineering Group
+spec:
+  type: team
+  profile:
+    displayName: Resiliency Engineering
+    email: resiliency-group@example.com
+  children: []
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: hello-world-app
+  description: Sandbox Hello World application fronted by HAProxy
+  links:
+    - url: https://127.0.0.1:8443
+      title: Live HAProxy HTTPS Endpoint
+      icon: web
+    - url: /create/templates/default/update-haproxy-tls-cert?formData=%7B%22certEntity%22%3A%22resource%3Adefault%2Fhaproxy-hello-world-tls%22%7D
+      title: Rotate Certificate
+      icon: key
+spec:
+  type: service
+  lifecycle: experimental
+  owner: group:resiliency-group
+  dependsOn:
+    - resource:default/haproxy-hello-world-tls
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: haproxy-hello-world-tls
+  description: HAProxy Frontend TLS Certificate for Hello World App
+  annotations:
+    resiliency.idp/cert-provider: "Self-Signed (OpenSSL)"
+    resiliency.idp/cert-version: "v1 (Serial: 63:39:7E:2B:C9:AB:10:1C:CF:21:47:BC:3A:F5:E3:67:EB:1E:F6:F9)"
+    resiliency.idp/cert-expiry: "2026-11-03T16:32:10Z"
+    resiliency.idp/days-remaining: "15"
+    resiliency.idp/cert-status: "Warning"
+    resiliency.idp/haproxy-host: "127.0.0.1:8443"
+    resiliency.idp/haproxy-pem-path: "/etc/haproxy/certs/hello-world.pem"
+  links:
+    - url: /create/templates/default/update-haproxy-tls-cert?formData=%7B%22certEntity%22%3A%22resource%3Adefault%2Fhaproxy-hello-world-tls%22%7D
+      title: Rotate Certificate
+      icon: key
+spec:
+  type: tls-certificate
+  owner: group:resiliency-group

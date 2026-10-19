@@ -69,4 +69,16 @@ backend.add(import('@backstage/plugin-signals-backend'));
 // mcp actions plugin
 backend.add(import('@backstage/plugin-mcp-actions-backend'));
 
+// Project Aegis: HAProxy TLS Certificate Management & Resiliency
+import {
+  catalogModuleHaproxyTls,
+  resiliencyTlsPlugin,
+  scaffolderModuleHaproxyTls,
+} from './modules/haproxyTlsModule';
+
+backend.add(scaffolderModuleHaproxyTls);
+backend.add(catalogModuleHaproxyTls);
+backend.add(resiliencyTlsPlugin);
+
 backend.start();
+

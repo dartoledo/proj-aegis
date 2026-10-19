@@ -203,6 +203,12 @@ catalog:
       rules:
         - allow: [Template]
 
+    # HAProxy TLS Certificate Rotation Template
+    - type: file
+      target: ../../examples/haproxy-tls-template/template.yaml
+      rules:
+        - allow: [Template]
+
     # Local example organizational data
     - type: file
       target: ../../examples/org.yaml

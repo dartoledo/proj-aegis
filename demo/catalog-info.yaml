@@ -10,3 +10,4 @@ spec:
     - ./backend/catalog-info.yaml
     - ./db-init/catalog-info.yaml
     - ./org/catalog-info.yaml
+    - ./haproxy/catalog-info.yaml

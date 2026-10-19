@@ -25,6 +25,7 @@ Project Aegis follows a strict **GitOps-first** philosophy. Backstage is NOT an 
 
 *   **TechDocs:** "Docs-like-code" approach. Architecture diagrams, threat models, and runbooks are stored as Markdown alongside the source code and rendered centrally here.
 *   **Kubernetes Visibility:** Developers get a service-centric view of their pods, deployments, and cluster health directly in the portal, reducing the need for direct cluster access.
+*   **Edge TLS Certificate Visibility & Zero-Downtime Rotation:** Live TLS handshake probing, certificate expiry tracking, Prometheus reliability metrics, and one-click Scaffolder workflows that validate X.509 key-pair modulus matches, bundle `.pem` artifacts, and hot-swap certificates in HAProxy memory via the HAProxy Runtime Socket without dropping active connections.
 
 ## 🎯 The Value of Accuracy (Why This Matters)
 
@@ -62,7 +63,7 @@ We have successfully provisioned a local instance of the Aegis Developer Portal 
    *The Backstage application will be running at `http://localhost:3000`.*
 
 3. **Explore the Software Catalog:**
-   The `catalog-info.yaml` definitions for the demo microservices are automatically loaded into Backstage on startup. Head over to the catalog page to see the dependency graph of `Aegis UI`, `Aegis Auth`, `Aegis Backend`, and `Aegis DB`!
+   The `catalog-info.yaml` definitions for the demo microservices are automatically loaded into Backstage on startup. Head over to the catalog page to see the dependency graph of `Aegis UI`, `Aegis Auth`, `Aegis Backend`, `Aegis DB`, and `hello-world-app` (`haproxy-hello-world-tls`)!
 
 4. **Kubernetes Integration (K3s):**
    Backstage is configured to securely authenticate with your local K3s cluster. Components are mapped to their respective deployments and pods using the `backstage.io/kubernetes-label-selector` annotation.
@@ -114,6 +115,30 @@ For a fully representative local environment without Docker Desktop, you can run
    ```
    *The demo UI will now be available at `http://localhost:30080`. (Test credentials: **admin** / **admin**)*
 
+### 🔐 HAProxy Edge TLS Certificate Visibility & Zero-Downtime Rotation
+
+Project Aegis includes an end-to-end **Software Catalog + Scaffolder + Zero-Downtime HAProxy Cutover** workflow (`demo/haproxy/`):
+
+1. **Start the HAProxy + Hello-World TLS Sandbox:**
+   ```bash
+   bash demo/haproxy/start-sandbox.sh --reset
+   ```
+   This spins up the `haproxy-sandbox` container fronting `hello-world-app` on `https://127.0.0.1:8443` with an initial **15-day** self-signed certificate (`CN=hello.internal`) to immediately demonstrate a `Warning` state in the catalog, with the HAProxy Runtime Admin Socket enabled at `/var/run/haproxy/haproxy.sock`.
+
+2. **Catalog Visibility & Live TLS Handshake Probing:**
+   - Catalog entities (`hello-world-app`, `haproxy-hello-world-tls`, and `resiliency-group` in `demo/haproxy/catalog-info.yaml`) track certificate provider, active X.509 serial/version, expiry timestamp, days remaining, and target HAProxy PEM path.
+   - `HaproxyTlsLiveProbeProcessor` in `portal/packages/backend/src/modules/haproxyTlsModule.ts` inspects the live peer certificate via Node's native `tls.connect` during catalog processing and refreshes.
+   - The **HAProxy Edge TLS Certificate Resiliency** frontend card (`portal/packages/app/src/modules/tls/tlsModule.tsx`) renders a color-coded health badge (`Healthy`, `Warning`, `Critical`), live certificate metadata, and a one-click **Rotate Certificate** button that pre-fills `resource:default/haproxy-hello-world-tls`.
+
+3. **Zero-Downtime Scaffolder Actions (`update-haproxy-tls-cert`):**
+   - `resiliency:haproxy:build-pem` (alias `resiliency:cert:bundle-haproxy-pem`): Supports uploading custom PEM cert/key pairs or auto-generating a fresh self-signed X.509 cert/key, verifies modulus/public-key match via OpenSSL, and concatenates `cert + "\n" + key` into HAProxy's unified `.pem` bundle format while redacting private keys from logs.
+   - `resiliency:haproxy:deploy-cert`: Writes `/etc/haproxy/certs/hello-world.pem` (`0600`) and streams the new bundle into HAProxy memory via the Runtime Socket (`set ssl cert` / `commit ssl cert`) with graceful master reload fallback (`SIGUSR2`).
+   - `resiliency:haproxy:verify-tls`: Performs a post-flight live TLS handshake check to verify the new X.509 serial number is active on the edge before syncing the Backstage Catalog (`catalog:refresh`).
+
+4. **Reliability KPI & Prometheus Metrics:**
+   - `GET http://localhost:7007/api/resiliency-tls/metrics`: Exposes Prometheus gauges `idp_certificate_expiry_days{service="hello-world",proxy="haproxy"}` and `idp_certificate_info`.
+   - `GET http://localhost:7007/api/resiliency-tls/status`: Returns live JSON probe telemetry from the HAProxy TLS edge.
+
 ### Demonstrating the Quality Gates (Shift-Left)
 
 Aegis enforces code quality and security checks natively. You can demo these capabilities directly on the backend service:
@@ -126,14 +151,22 @@ Aegis enforces code quality and security checks natively. You can demo these cap
    ```
    *(This ensures that any new commits successfully pass the unit tests and strict header policies).*
 
-2. **Catalog Integration:** In the Backstage Developer Portal (`http://localhost:3000`), the `aegis-backend` component is pre-configured with annotations (e.g., `sonarqube.org/project-key`) to pull live code quality and vulnerability metrics. Once the CI pipeline completes, Backstage will aggregate these results on the component's dashboard.
+2. **Portal Backend & Frontend Automated Tests:**
+   ```bash
+   cd portal
+   yarn tsc
+   yarn --cwd packages/backend test haproxyTlsService.test.ts --watchAll=false
+   yarn --cwd packages/app test --watchAll=false
+   ```
+
+3. **Catalog Integration:** In the Backstage Developer Portal (`http://localhost:3000`), the `aegis-backend` component is pre-configured with annotations (e.g., `sonarqube.org/project-key`) to pull live code quality and vulnerability metrics. Once the CI pipeline completes, Backstage will aggregate these results on the component's dashboard.
 
 ## 🗺️ Roadmap
 
 - **Phase 1: Visibility:** Populate the Software Catalog with all existing CIAM microservices and set up TechDocs.
 - **Phase 2: Standardization:** Release the first two "Golden Path" templates for Node.js and Java microservices.
 - **Phase 3: Operations:** Integrate the Kubernetes plugin, roll out Dagger across all CIAM microservices to eliminate pipeline flakiness, and add CI status views.
-- **Phase 4: Custom CIAM Tooling:** Build custom internal plugins for key rotation visibility and auth token debugging.
+- **Phase 4: Custom CIAM Tooling:** Custom internal plugins for HAProxy TLS certificate rotation visibility (`resiliency-tls`), zero-downtime Runtime Socket cutover, and auth token debugging.
 
 ## 🤝 Contributing
 

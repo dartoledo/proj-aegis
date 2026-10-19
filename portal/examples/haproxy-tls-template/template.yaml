@@ -1,0 +1,106 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: update-haproxy-tls-cert
+  title: Update HAProxy TLS Certificate (Self-Signed MVP)
+  description: Validate, bundle, and hot-reload a TLS certificate and key on HAProxy fronting the Hello World app.
+  tags:
+    - haproxy
+    - tls
+    - mvp
+spec:
+  owner: group:resiliency-group
+  type: workflow
+
+  parameters:
+    - title: 1. Target Certificate & Mode
+      required: [certEntity, updateMode]
+      properties:
+        certEntity:
+          title: Target HAProxy Certificate
+          type: string
+          default: resource:default/haproxy-hello-world-tls
+          ui:field: EntityPicker
+          ui:options:
+            catalogFilter:
+              kind: Resource
+              spec.type: tls-certificate
+        provider:
+          title: Certificate Provider
+          type: string
+          default: Self-Signed
+          enum: [Self-Signed]
+        updateMode:
+          title: Artifact Source
+          type: string
+          default: upload
+          enum: [upload, auto-generate]
+          enumNames:
+            - "Upload Custom Self-Signed Cert & Private Key"
+            - "Auto-Generate Fresh Self-Signed Cert & Key"
+
+    - title: 2. Certificate Artifacts
+      dependencies:
+        updateMode:
+          oneOf:
+            - properties:
+                updateMode:
+                  enum: [upload]
+                publicCert:
+                  title: Public Certificate (PEM)
+                  type: string
+                  ui:widget: textarea
+                privateKey:
+                  title: Private Key (PEM - Redacted from logs)
+                  type: string
+                  ui:widget: password
+              required: [publicCert, privateKey]
+            - properties:
+                updateMode:
+                  enum: [auto-generate]
+                commonName:
+                  title: Common Name (CN)
+                  type: string
+                  default: hello.internal
+                validDays:
+                  title: Validity Period (Days)
+                  type: integer
+                  default: 90
+
+  steps:
+    - id: prepare-and-validate-pem
+      name: Validate Key-Pair Match & Build HAProxy .pem Bundle
+      action: resiliency:haproxy:build-pem
+      input:
+        mode: ${{ parameters.updateMode }}
+        cert: ${{ parameters.publicCert }}
+        key: ${{ parameters.privateKey }}
+        commonName: ${{ parameters.commonName }}
+        validDays: ${{ parameters.validDays }}
+
+    - id: deploy-to-haproxy
+      name: Push .pem & Hot-Reload HAProxy TLS
+      action: resiliency:haproxy:deploy-cert
+      input:
+        entityRef: ${{ parameters.certEntity }}
+        pemBundle: ${{ steps['prepare-and-validate-pem'].output.pemBundle }}
+
+    - id: verify-live-handshake
+      name: Verify New Certificate Serial on Port 443
+      action: resiliency:haproxy:verify-tls
+      input:
+        expectedSerial: ${{ steps['prepare-and-validate-pem'].output.serialNumber }}
+
+    - id: refresh-catalog
+      name: Sync Updated Expiry & Version in Backstage Catalog
+      action: catalog:refresh
+      input:
+        entityRef: ${{ parameters.certEntity }}
+
+  output:
+    text:
+      - title: HAProxy Certificate Updated Successfully
+        content: |
+          - **New Version / Serial:** `${{ steps['prepare-and-validate-pem'].output.serialNumber }}`
+          - **New Expiry Date:** `${{ steps['prepare-and-validate-pem'].output.expiryDate }}`
+          - **Live Verification:** Passed on `https://hello.internal:443`

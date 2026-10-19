@@ -1,0 +1,10 @@
+# Virtual environments
+.venv/
+
+# HAProxy sandbox runtime artifacts & generated TLS bundles
+demo/haproxy/certs/
+demo/haproxy/run/
+*.pem
+*.key
+*.crt
+*.sock
