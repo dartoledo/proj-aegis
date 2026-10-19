@@ -7,6 +7,7 @@ import { Entity } from '@backstage/catalog-model';
 import {
   CatalogProcessor,
   catalogProcessingExtensionPoint,
+  catalogServiceRef,
 } from '@backstage/plugin-catalog-node';
 import {
   createTemplateAction,
@@ -18,6 +19,7 @@ import {
   deployCertToHaproxy,
   probeLiveTlsCertificate,
   renderPrometheusMetrics,
+  updateCatalogYamlAnnotations,
   verifyLiveTlsSerial,
 } from './haproxyTlsService';
 
@@ -179,6 +181,50 @@ function createVerifyTlsTemplateAction() {
   });
 }
 
+function createCatalogRefreshTemplateAction(
+  catalog: typeof catalogServiceRef.T,
+  auth: typeof coreServices.auth.T,
+) {
+  return createTemplateAction({
+    id: 'catalog:refresh',
+    description:
+      'Refreshes a Backstage Catalog entity and syncs its live TLS certificate annotations.',
+    schema: {
+      input: {
+        entityRef: z =>
+          z
+            .string()
+            .describe('Entity reference to refresh in the Backstage Catalog'),
+      },
+    },
+    async handler(ctx) {
+      ctx.logger.info(
+        `Refreshing catalog entity=${ctx.input.entityRef} with latest live TLS metadata...`,
+      );
+      try {
+        const probe = await probeLiveTlsCertificate();
+        updateCatalogYamlAnnotations(probe);
+      } catch {
+        // Ignore if live probe fails during refresh
+      }
+
+      try {
+        const credentials = await ctx.getInitiatorCredentials();
+        await catalog.refreshEntity(ctx.input.entityRef, { credentials });
+      } catch {
+        const serviceCreds = await auth.getOwnServiceCredentials();
+        await catalog.refreshEntity(ctx.input.entityRef, {
+          credentials: serviceCreds,
+        });
+      }
+
+      ctx.logger.info(
+        `Successfully triggered catalog refresh for ${ctx.input.entityRef}`,
+      );
+    },
+  });
+}
+
 export const scaffolderModuleHaproxyTls = createBackendModule({
   pluginId: 'scaffolder',
   moduleId: 'haproxy-tls-actions',
@@ -186,13 +232,16 @@ export const scaffolderModuleHaproxyTls = createBackendModule({
     reg.registerInit({
       deps: {
         scaffolder: scaffolderActionsExtensionPoint,
+        catalog: catalogServiceRef,
+        auth: coreServices.auth,
       },
-      async init({ scaffolder }) {
+      async init({ scaffolder, catalog, auth }) {
         scaffolder.addActions(
           createBuildPemTemplateAction('resiliency:haproxy:build-pem'),
           createBuildPemTemplateAction('resiliency:cert:bundle-haproxy-pem'),
           createDeployCertTemplateAction(),
           createVerifyTlsTemplateAction(),
+          createCatalogRefreshTemplateAction(catalog, auth),
         );
       },
     });

@@ -146,10 +146,7 @@ describe('haproxyTlsService', () => {
       });
 
       expect(deployResult.serialNumber).toBe(freshCert.serialNumber);
-      expect([
-        'haproxy-runtime-socket',
-        'haproxy-master-reload-usr2',
-      ]).toContain(deployResult.reloadedVia);
+      expect(deployResult.reloadedVia).toBe('haproxy-runtime-socket');
 
       // Verify live TLS handshake serves the newly deployed serial
       const verifiedProbe = await verifyLiveTlsSerial(

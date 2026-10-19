@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import tls from 'node:tls';
@@ -43,6 +44,8 @@ export const DEFAULT_HAPROXY_HOST =
   process.env.AEGIS_HAPROXY_HOST || '127.0.0.1:8443';
 export const DEFAULT_HOST_PEM_PATH =
   '/home/dartoledo/proj-aegis/demo/haproxy/certs/hello-world.pem';
+export const DEFAULT_HOST_SOCKET_PATH =
+  '/home/dartoledo/proj-aegis/demo/haproxy/run/haproxy.sock';
 export const DEFAULT_CONTAINER_PEM_PATH =
   '/etc/haproxy/certs/hello-world.pem';
 export const DEFAULT_CATALOG_INFO_PATH =
@@ -111,6 +114,37 @@ function extractCertAndKeyFromBundle(pemBundle: string): {
   return { cert: certMatch[0], key: keyMatch[0] };
 }
 
+export async function sendHaproxySocketCommand(
+  command: string,
+  socketPath = DEFAULT_HOST_SOCKET_PATH,
+): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    const client = net.createConnection(socketPath, () => {
+      client.write(command);
+      client.end();
+    });
+
+    client.setTimeout(3000, () => {
+      client.destroy();
+      reject(new Error(`HAProxy runtime socket timed out: ${socketPath}`));
+    });
+
+    client.on('data', chunk => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+
+    client.on('end', () => {
+      resolve(Buffer.concat(chunks).toString('utf8'));
+    });
+
+    client.on('error', err => {
+      client.destroy();
+      reject(err);
+    });
+  });
+}
+
 export async function buildAndValidateHaproxyPem(
   input: BuildPemInput,
 ): Promise<BuildPemOutput> {
@@ -172,7 +206,6 @@ export async function buildAndValidateHaproxyPem(
         { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
       ).trim();
     } catch {
-      // Fallback to public key comparison for EC/PKCS#8 keys or malformed PEMs
       try {
         certModulus = execFileSync(
           'openssl',
@@ -387,35 +420,68 @@ export async function deployCertToHaproxy(input: DeployCertInput): Promise<{
   fs.writeFileSync(targetPemPath, validated.pemBundle, { mode: 0o600 });
 
   let reloadedVia = 'disk-write';
+  const setCmd = `set ssl cert ${DEFAULT_CONTAINER_PEM_PATH} <<\n${validated.pemBundle.trim()}\n\n`;
+  const commitCmd = `commit ssl cert ${DEFAULT_CONTAINER_PEM_PATH}\n`;
 
-  // 1. Attempt HAProxy Runtime API Socket hot-swap via socat inside haproxy-sandbox
-  const socketPayload = `set ssl cert ${DEFAULT_CONTAINER_PEM_PATH} <<\n${validated.pemBundle}\n\ncommit ssl cert ${DEFAULT_CONTAINER_PEM_PATH}\n`;
-  const socatProc = spawnSync(
-    'podman',
-    [
-      'exec',
-      '-i',
-      'haproxy-sandbox',
-      'sh',
-      '-c',
-      'socat stdio /var/run/haproxy/haproxy.sock',
-    ],
-    {
-      input: socketPayload,
-      encoding: 'utf8',
-      timeout: 5000,
-    },
-  );
-
-  if (
-    socatProc.status === 0 &&
-    socatProc.stdout &&
-    /Success/i.test(socatProc.stdout)
-  ) {
-    reloadedVia = 'haproxy-runtime-socket';
+  // 1. Primary: Native host Unix socket to HAProxy Runtime API (two separate connections)
+  try {
+    await sendHaproxySocketCommand(setCmd, DEFAULT_HOST_SOCKET_PATH);
+    const commitOut = await sendHaproxySocketCommand(
+      commitCmd,
+      DEFAULT_HOST_SOCKET_PATH,
+    );
+    if (/Success/i.test(commitOut)) {
+      reloadedVia = 'haproxy-runtime-socket';
+    }
+  } catch {
+    // Fall back to podman exec socat if host socket is not directly accessible
   }
 
-  // 2. Also send SIGUSR2 to HAProxy master process (PID 1) if needed to guarantee seamless reload
+  // 2. Secondary: Two separate podman exec socat calls against /var/run/haproxy/haproxy.sock
+  if (reloadedVia !== 'haproxy-runtime-socket') {
+    const setProc = spawnSync(
+      'podman',
+      [
+        'exec',
+        '-i',
+        'haproxy-sandbox',
+        'socat',
+        'stdio',
+        '/var/run/haproxy/haproxy.sock',
+      ],
+      {
+        input: setCmd,
+        encoding: 'utf8',
+        timeout: 5000,
+      },
+    );
+    const commitProc = spawnSync(
+      'podman',
+      [
+        'exec',
+        '-i',
+        'haproxy-sandbox',
+        'socat',
+        'stdio',
+        '/var/run/haproxy/haproxy.sock',
+      ],
+      {
+        input: commitCmd,
+        encoding: 'utf8',
+        timeout: 5000,
+      },
+    );
+    if (
+      setProc.status === 0 &&
+      commitProc.status === 0 &&
+      commitProc.stdout &&
+      /Success/i.test(commitProc.stdout)
+    ) {
+      reloadedVia = 'haproxy-runtime-socket';
+    }
+  }
+
+  // 3. Fallback: Graceful master-worker SIGUSR2 reload and wait until new serial is served
   if (reloadedVia !== 'haproxy-runtime-socket') {
     const reloadProc = spawnSync(
       'podman',
@@ -424,7 +490,20 @@ export async function deployCertToHaproxy(input: DeployCertInput): Promise<{
     );
     if (reloadProc.status === 0) {
       reloadedVia = 'haproxy-master-reload-usr2';
-      await new Promise(r => setTimeout(r, 400));
+      for (let attempt = 0; attempt < 10; attempt++) {
+        await new Promise(r => setTimeout(r, 250));
+        try {
+          const probe = await probeLiveTlsCertificate();
+          if (
+            normalizeSerial(probe.serialNumber) ===
+            normalizeSerial(validated.serialNumber)
+          ) {
+            break;
+          }
+        } catch {
+          // Ignore transient probe errors during worker replacement
+        }
+      }
     }
   }
 
@@ -464,13 +543,35 @@ export async function verifyLiveTlsSerial(
   expectedSerial: string,
   hostPort?: string,
 ): Promise<TlsProbeResult> {
-  const probe = await probeLiveTlsCertificate(hostPort);
-  if (normalizeSerial(probe.serialNumber) !== normalizeSerial(expectedSerial)) {
+  let lastProbe: TlsProbeResult | undefined;
+  let lastErr: unknown;
+
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try {
+      const probe = await probeLiveTlsCertificate(hostPort);
+      lastProbe = probe;
+      if (
+        normalizeSerial(probe.serialNumber) ===
+        normalizeSerial(expectedSerial)
+      ) {
+        return probe;
+      }
+    } catch (err) {
+      lastErr = err;
+    }
+    if (attempt < 5) {
+      await new Promise(r => setTimeout(r, 250));
+    }
+  }
+
+  if (lastProbe) {
     throw new Error(
-      `Live TLS serial mismatch: expected ${expectedSerial}, got ${probe.serialNumber}`,
+      `Live TLS serial mismatch: expected ${expectedSerial}, got ${lastProbe.serialNumber}`,
     );
   }
-  return probe;
+  throw lastErr instanceof Error
+    ? lastErr
+    : new Error(`Live TLS verification failed for expected serial ${expectedSerial}`);
 }
 
 export async function renderPrometheusMetrics(
