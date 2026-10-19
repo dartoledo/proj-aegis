@@ -76,9 +76,21 @@ import {
   scaffolderModuleHaproxyTls,
 } from './modules/haproxyTlsModule';
 
+// Project Aegis: Kubernetes Day-2 Operations Automation (Scale & Rolling Restart)
+import {
+  catalogModuleK8sDay2Ops,
+  resiliencyK8sPlugin,
+  scaffolderModuleK8sDay2Ops,
+} from './modules/k8sDay2OpsModule';
+
 backend.add(scaffolderModuleHaproxyTls);
 backend.add(catalogModuleHaproxyTls);
 backend.add(resiliencyTlsPlugin);
 
+backend.add(scaffolderModuleK8sDay2Ops);
+backend.add(catalogModuleK8sDay2Ops);
+backend.add(resiliencyK8sPlugin);
+
 backend.start();
+
 

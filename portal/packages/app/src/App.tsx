@@ -4,6 +4,7 @@ import { navModule } from './modules/nav';
 import { homeModule } from './modules/home';
 import { qualityModule } from './modules/quality';
 import { tlsModule } from './modules/tls';
+import { k8sOpsModule } from './modules/k8sOps';
 
 import notificationsPlugin from '@backstage/plugin-notifications/alpha';
 
@@ -14,7 +15,9 @@ export default createApp({
     homeModule,
     qualityModule,
     tlsModule,
+    k8sOpsModule,
     notificationsPlugin,
   ],
 });
+
 

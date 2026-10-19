@@ -209,6 +209,12 @@ catalog:
       rules:
         - allow: [Template]
 
+    # Kubernetes Day-2 Operations Template (Scale & Rolling Restart)
+    - type: file
+      target: ../../examples/k8s-day2-ops-template/template.yaml
+      rules:
+        - allow: [Template]
+
     # Local example organizational data
     - type: file
       target: ../../examples/org.yaml

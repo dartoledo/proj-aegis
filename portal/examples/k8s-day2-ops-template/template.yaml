@@ -1,0 +1,125 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: k8s-day2-operations
+  title: Kubernetes Day-2 Operations (Scale & Rolling Restart)
+  description: Harness IDP-style self-service workflow to scale Kubernetes replicas (by Count or Percentage) or trigger a zero-downtime rolling restart on K3s with OPA policy guardrails and steady-state verification.
+  tags:
+    - kubernetes
+    - k3s
+    - day-2
+    - sre
+    - harness-idp
+spec:
+  owner: group:resiliency-group
+  type: workflow
+
+  parameters:
+    - title: 1. Target Kubernetes Service & Operation
+      required: [componentEntity, namespace, operationType, reason]
+      properties:
+        componentEntity:
+          title: Target Microservice / Workload
+          type: string
+          default: component:default/aegis-backend
+          ui:field: EntityPicker
+          ui:options:
+            catalogFilter:
+              kind: [Component, Resource]
+        namespace:
+          title: Kubernetes Namespace
+          type: string
+          default: default
+          enum: [default]
+        operationType:
+          title: Day-2 Operation Type
+          type: string
+          default: scale
+          enum: [scale, rolling-restart]
+          enumNames:
+            - "Scale Workload Up / Down (Harness K8sScale)"
+            - "Zero-Downtime Rolling Restart (Harness K8sRollout)"
+        reason:
+          title: Audit Reason / Change Ticket
+          type: string
+          default: "Traffic spike capacity adjustment"
+
+    - title: 2. Operation Parameters
+      dependencies:
+        operationType:
+          oneOf:
+            - properties:
+                operationType:
+                  enum: [scale]
+                selectionMode:
+                  title: Instance Selection Mode (Harness K8sScale)
+                  type: string
+                  default: Count
+                  enum: [Count, Percentage]
+                  enumNames:
+                    - "Absolute Replica Count (Count)"
+                    - "Percentage of Baseline Replicas (Percentage)"
+                replicaCount:
+                  title: Target Replicas (if Count) or Percentage (e.g. 200 for 200%)
+                  type: integer
+                  default: 2
+                  minimum: 1
+                syncGitOpsManifest:
+                  title: Sync Replica Count to GitOps Manifest (demo/k8s/manifest.yaml)
+                  type: boolean
+                  default: true
+              required: [selectionMode, replicaCount]
+            - properties:
+                operationType:
+                  enum: [rolling-restart]
+                waitTimeoutSeconds:
+                  title: Rollout Steady-State Timeout (Seconds)
+                  type: integer
+                  default: 90
+
+  steps:
+    - id: validate-policy
+      name: Evaluate OPA Guardrails & Resolve K8s Workload
+      action: resiliency:k8s:validate-policy
+      input:
+        entityRef: ${{ parameters.componentEntity }}
+        namespace: ${{ parameters.namespace }}
+        operationType: ${{ parameters.operationType }}
+        selectionMode: ${{ parameters.selectionMode }}
+        replicaValue: ${{ parameters.replicaCount }}
+        reason: ${{ parameters.reason }}
+
+    - id: execute-day2-op
+      name: Execute K8s Day-2 Operation & Wait for Steady-State
+      action: resiliency:k8s:execute-day2-op
+      input:
+        entityRef: ${{ parameters.componentEntity }}
+        deploymentName: ${{ steps['validate-policy'].output.deploymentName }}
+        namespace: ${{ parameters.namespace }}
+        operationType: ${{ parameters.operationType }}
+        targetReplicas: ${{ steps['validate-policy'].output.targetReplicas }}
+        syncGitOpsManifest: ${{ parameters.syncGitOpsManifest }}
+        reason: ${{ parameters.reason }}
+
+    - id: verify-and-diff
+      name: Verify Pod Readiness, Service Health & Generate State Diff
+      action: resiliency:k8s:verify-and-diff
+      input:
+        deploymentName: ${{ steps['validate-policy'].output.deploymentName }}
+        namespace: ${{ parameters.namespace }}
+        operationType: ${{ parameters.operationType }}
+        expectedReplicas: ${{ steps['execute-day2-op'].output.targetReplicas }}
+        previousStateJson: ${{ steps['execute-day2-op'].output.previousStateJson }}
+        gitOpsSynced: ${{ steps['execute-day2-op'].output.gitOpsSynced }}
+
+    - id: refresh-catalog
+      name: Sync Updated K8s Telemetry in Backstage Catalog
+      action: catalog:refresh
+      input:
+        entityRef: ${{ parameters.componentEntity }}
+
+  output:
+    text:
+      - title: Kubernetes Day-2 Operation Verified
+        content: |
+          ${{ steps['verify-and-diff'].output.k8sDiffMarkdown }}

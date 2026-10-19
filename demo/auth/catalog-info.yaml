@@ -6,6 +6,19 @@ metadata:
   annotations:
     backstage.io/kubernetes-label-selector: 'app=auth'
     backstage.io/techdocs-ref: dir:.
+    resiliency.idp/k8s-namespace: 'default'
+    resiliency.idp/k8s-deployment: 'auth'
+    resiliency.idp/k8s-baseline-replicas: '1'
+    resiliency.idp/k8s-min-replicas: '1'
+    resiliency.idp/k8s-max-replicas: '10'
+    resiliency.idp/k8s-health-url: 'http://127.0.0.1:30001'
+  links:
+    - url: /create/templates/default/k8s-day2-operations?formData=%7B%22componentEntity%22%3A%22component%3Adefault%2Faegis-auth%22%2C%22operationType%22%3A%22scale%22%7D
+      title: Scale K8s Replicas (Day-2)
+      icon: dashboard
+    - url: /create/templates/default/k8s-day2-operations?formData=%7B%22componentEntity%22%3A%22component%3Adefault%2Faegis-auth%22%2C%22operationType%22%3A%22rolling-restart%22%7D
+      title: Rolling Restart Pods (Day-2)
+      icon: refresh
 spec:
   type: service
   lifecycle: experimental
