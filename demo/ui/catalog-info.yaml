@@ -3,6 +3,14 @@ kind: Component
 metadata:
   name: aegis-ui
   description: The stunning frontend interface for Project Aegis
+  tags:
+    - env:dev
+    - env:stg
+    - env:stress-test
+    - env:preprod
+    - env:prod
+    - ssl-monitored
+    - gcp-cloud-lb
   annotations:
     backstage.io/kubernetes-label-selector: 'app=ui'
     backstage.io/techdocs-ref: dir:.
@@ -12,11 +20,25 @@ metadata:
     resiliency.idp/k8s-min-replicas: '1'
     resiliency.idp/k8s-max-replicas: '10'
     resiliency.idp/k8s-health-url: 'http://127.0.0.1:30080'
+    resiliency.idp/ssl-provider: 'gcp-cloud-lb'
+    resiliency.idp/ssl-renewal-mode: 'workflow-auto-renew'
+    resiliency.idp/gcp-project: 'aegis-prod-cloud'
+    resiliency.idp/gcp-target-https-proxy: 'aegis-ui-https-proxy'
+    resiliency.idp/endpoints.dev: 'https://dev.ui.aegis.cloud.goog/healthz'
+    resiliency.idp/endpoints.stg.web: 'https://stg-web.ui.aegis.cloud.goog/healthz'
+    resiliency.idp/endpoints.stg.cdn: 'https://stg-cdn.ui.aegis.cloud.goog/healthz'
+    resiliency.idp/endpoints.stg.canary: 'https://stg-canary.ui.aegis.cloud.goog/healthz'
+    resiliency.idp/endpoints.stress-test: 'https://stress.ui.aegis.cloud.goog/healthz'
+    resiliency.idp/endpoints.preprod: 'https://preprod.ui.aegis.cloud.goog/healthz'
+    resiliency.idp/endpoints.prod: 'https://prod.ui.aegis.cloud.goog/healthz'
   links:
-    - url: /create/templates/default/k8s-day2-operations?formData=%7B%22componentEntity%22%3A%22component%3Adefault%2Faegis-ui%22%2C%22operationType%22%3A%22scale%22%7D
+    - url: http://localhost:3000/create/templates/default/renew-gcp-lb-tls-cert?formData=%7B%22targetEntity%22%3A%22component%3Adefault%2Faegis-ui%22%7D
+      title: Auto-Renew GCP Cloud LB SSL Cert
+      icon: cloud
+    - url: http://localhost:3000/create/templates/default/k8s-day2-operations?formData=%7B%22componentEntity%22%3A%22component%3Adefault%2Faegis-ui%22%2C%22operationType%22%3A%22scale%22%7D
       title: Scale K8s Replicas (Day-2)
       icon: dashboard
-    - url: /create/templates/default/k8s-day2-operations?formData=%7B%22componentEntity%22%3A%22component%3Adefault%2Faegis-ui%22%2C%22operationType%22%3A%22rolling-restart%22%7D
+    - url: http://localhost:3000/create/templates/default/k8s-day2-operations?formData=%7B%22componentEntity%22%3A%22component%3Adefault%2Faegis-ui%22%2C%22operationType%22%3A%22rolling-restart%22%7D
       title: Rolling Restart Pods (Day-2)
       icon: refresh
 spec:

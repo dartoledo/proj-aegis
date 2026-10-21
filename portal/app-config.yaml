@@ -209,6 +209,12 @@ catalog:
       rules:
         - allow: [Template]
 
+    # GCP Public Cloud LB Auto-Renewal Template
+    - type: file
+      target: ../../examples/gcp-lb-tls-template/template.yaml
+      rules:
+        - allow: [Template]
+
     # Kubernetes Day-2 Operations Template (Scale & Rolling Restart)
     - type: file
       target: ../../examples/k8s-day2-ops-template/template.yaml

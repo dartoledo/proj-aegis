@@ -26,6 +26,7 @@ Project Aegis follows a strict **GitOps-first** philosophy. Backstage is NOT an 
 *   **TechDocs:** "Docs-like-code" approach. Architecture diagrams, threat models, and runbooks are stored as Markdown alongside the source code and rendered centrally here.
 *   **Kubernetes Visibility:** Developers get a service-centric view of their pods, deployments, and cluster health directly in the portal, reducing the need for direct cluster access.
 *   **Edge TLS Certificate Visibility & Zero-Downtime Rotation:** Live TLS handshake probing, certificate expiry tracking, Prometheus reliability metrics, and one-click Scaffolder workflows that validate X.509 key-pair modulus matches, bundle `.pem` artifacts, and hot-swap certificates in HAProxy memory via the HAProxy Runtime Socket without dropping active connections.
+*   **Multi-Environment & Multi-Provider SSL/TLS Compliance Tracker:** End-to-end 5-pillar X.509 compliance engine across `dev`, `stg` (`1:N` sub-endpoints), `stress-test`, `preprod`, and `prod` for **Google Cloud Load Balancer (`gcp-cloud-lb`)**, **Private Cloud Load Balancer (`private-cloud-lb`)**, and **HAProxy Edge (`haproxy-edge`)**, featuring interactive Quality Gate certificate diffs, rotation lineage history, and one-click weak-crypto remediation.
 
 ## 🎯 The Value of Accuracy (Why This Matters)
 
@@ -139,6 +140,34 @@ Project Aegis includes an end-to-end **Software Catalog + Scaffolder + Zero-Down
    - `GET http://localhost:7007/api/resiliency-tls/metrics`: Exposes Prometheus gauges `idp_certificate_expiry_days{service="hello-world",proxy="haproxy"}` and `idp_certificate_info`.
    - `GET http://localhost:7007/api/resiliency-tls/status`: Returns live JSON probe telemetry from the HAProxy TLS edge.
 
+### 🌐 Multi-Environment & Multi-Provider SSL/TLS Endpoint & Compliance Tracker
+
+Project Aegis extends edge TLS visibility into a full fleet-wide **Multi-Environment (`1:N`) & Multi-Provider SSL/TLS Compliance Tracker** (`portal/packages/backend/src/modules/sslEndpointTracker*`, `portal/packages/app/src/modules/sslTracker/`, and `services/ssl_tracker/`):
+
+1. **5 Mandatory X.509 Security & Reliability Pillars:**
+   - **Pillar 1 — Not After (Expiry & SSO Guard):** Categorizes certificates into `HEALTHY`, `WARNING` ($\le 30\text{d}$), `CRITICAL` ($\le 7\text{d}$), and `EXPIRED` ($\le 0\text{d}$), and detects `SELF_RENEWAL_STALLED` SLA breaches on autonomous Private Cloud LBs.
+   - **Pillar 2 — Subject (Common Name & SANs):** Enforces RFC 6125 single-label wildcard DNS matching (`*.domain`) with CN fallback to prevent hostname routing mismatches.
+   - **Pillar 3 — Issuer (CA & Renewal Path):** Tracks issuing CA lineage (`GTS CA 1C3`, `Aegis Private Cloud Vault Intermediate CA G2`, `Aegis HAProxy Edge Root CA`) and self-signed status.
+   - **Pillar 4 — Serial Number (Unique DB Key & Lineage):** Normalizes colon-delimited hex serials, links rotated certificates via `rotatedFromSerial`, and preserves full rotation history (`historyCount` + active/rotated states).
+   - **Pillar 5 — Signature Algorithm & Key Size:** Flags deprecated hashes (`SHA-1`, `MD5`) and weak asymmetric keys (`RSA < 2048-bit`, `ECDSA < 256-bit`) as `NON_COMPLIANT`.
+
+2. **1:N Multi-Environment Catalog Annotations & Provider Modes:**
+   - Catalog entities (`aegis-ui`, `aegis-auth`, `aegis-backend`, `hello-world-app`, `haproxy-hello-world-tls`) declare endpoints across `dev`, `stg` (supporting `1:N` named sub-endpoints such as `endpoints.stg.web`, `endpoints.stg.cdn`, `endpoints.stg.canary`), `stress-test`, `preprod`, and `prod`.
+   - Supports three provider renewal archetypes:
+     - `gcp-cloud-lb` (`workflow-auto-renew`): Automated Google Trust Services (`GTS CA 1C3`) DNS-01 authorization, Quality Gate diff review, and `TargetHttpsProxy` binding.
+     - `private-cloud-lb` (`self-renewing-monitored`): Autonomous Vault PKI renewal monitoring with one-click cryptographic remediation (`⚡ Remediate Weak Crypto (RSA-2048)`) for legacy/non-compliant endpoints (e.g., `aegis-backend` `stress-test.legacy-audit`).
+     - `haproxy-edge` (`manual-or-template`): Per-endpoint `host:port` live TLS socket probing paired with hitless HAProxy Runtime Socket PEM rotation.
+
+3. **Frontend UX & QOL Capabilities (`EntityMultiEnvSslComplianceCard`):**
+   - **Environment & Compliance Filtering:** Filter endpoints by environment tier tabs (`ALL`, `DEV`, `STG`, `STRESS-TEST`, `PREPROD`, `PROD`), compliance status chips (`ALL`, `COMPLIANT`, `WARNING`, `NON_COMPLIANT`), and real-time search across hostname, URL, endpoint key, issuer, or serial number.
+   - **Interactive Quality Gate & Unified Diff Review:** Preview `--- Current` vs. `+++ Proposed` unified X.509 certificate diffs per environment and approve/reject directly in the card (with approver identity auto-populated via Backstage `identityApiRef` and verified via `coreServices.httpAuth`).
+   - **Certificate Rotation History & Serial Lineage Drawer:** Expandable audit table displaying active and historical rotated certificates for every endpoint.
+   - **Resilient API Discovery & Persistence:** Uses Backstage `discoveryApiRef` and `fetchApiRef` with graceful offline fallback banners (`Retry Live Sync`) and self-contained disk persistence (`.ssl_tracker_state.json`).
+
+4. **Scaffolder Actions & Backend API Endpoints (`/api/ssl-tracker/*`):**
+   - **Scaffolder Template (`renew-gcp-lb-tls-cert`):** 4-step workflow (`resiliency:gcp-lb:authorize-dns`, `resiliency:gcp-lb:quality-gate-approval`, `resiliency:gcp-lb:renew-and-bind`, `resiliency:gcp-lb:verify-compliance`) with dynamic catalog endpoint resolution, plus `resiliency:private-lb:remediate-crypto`.
+   - **REST & Observability Routes:** `GET /status`, `GET /fleet`, `GET /history`, `POST /scan`, `POST /gcp-preview-diff`, `POST /quality-gate/decide`, `POST /gcp-auto-renew`, `POST /remediate-crypto`, and Prometheus `GET /metrics` (`aegis_ssl_endpoint_expiry_days`, `aegis_ssl_endpoint_compliant`, `aegis_ssl_endpoint_key_bits`).
+
 ### Demonstrating the Quality Gates (Shift-Left)
 
 Aegis enforces code quality and security checks natively. You can demo these capabilities directly on the backend service:
@@ -151,12 +180,17 @@ Aegis enforces code quality and security checks natively. You can demo these cap
    ```
    *(This ensures that any new commits successfully pass the unit tests and strict header policies).*
 
-2. **Portal Backend & Frontend Automated Tests:**
+2. **Portal Backend, Frontend & Python SSL Compliance Automated Tests:**
    ```bash
    cd portal
    yarn tsc
    yarn --cwd packages/backend test haproxyTlsService.test.ts --watchAll=false
+   yarn --cwd packages/backend test sslEndpointTrackerService.test.ts --watchAll=false
    yarn --cwd packages/app test --watchAll=false
+
+   # Run the standalone Python SSL Compliance Tracker unit, integration, and E2E test suite
+   cd ..
+   .venv/bin/python -m pytest -q
    ```
 
 3. **Catalog Integration:** In the Backstage Developer Portal (`http://localhost:3000`), the `aegis-backend` component is pre-configured with annotations (e.g., `sonarqube.org/project-key`) to pull live code quality and vulnerability metrics. Once the CI pipeline completes, Backstage will aggregate these results on the component's dashboard.
@@ -167,6 +201,7 @@ Aegis enforces code quality and security checks natively. You can demo these cap
 - **Phase 2: Standardization:** Release the first two "Golden Path" templates for Node.js and Java microservices.
 - **Phase 3: Operations:** Integrate the Kubernetes plugin, roll out Dagger across all CIAM microservices to eliminate pipeline flakiness, and add CI status views.
 - **Phase 4: Custom CIAM Tooling:** Custom internal plugins for HAProxy TLS certificate rotation visibility (`resiliency-tls`), zero-downtime Runtime Socket cutover, and auth token debugging.
+- **Phase 5: Multi-Environment SSL/TLS Compliance Governance:** Fleet-wide 5-pillar X.509 compliance tracking (`ssl-tracker`), interactive Quality Gate certificate diffs, GCP Certificate Manager auto-renewal workflows, Private Cloud LB weak-crypto remediation, and serial rotation lineage auditing.
 
 ## 🤝 Contributing
 

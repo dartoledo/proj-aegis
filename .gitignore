@@ -8,3 +8,8 @@ demo/haproxy/run/
 *.key
 *.crt
 *.sock
+
+# SSL Tracker local persistence & test coverage artifacts
+.ssl_tracker.db
+.ssl_tracker_state.json
+.coverage

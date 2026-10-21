@@ -1,0 +1,194 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: renew-gcp-lb-tls-cert
+  title: Auto-Renew Google Cloud Load Balancer SSL Certificate
+  description: Automated DNS-01 authorization, Quality Gate manual approval with per-environment certificate diff, Google Trust Services (GTS CA 1C3) issuance, and TargetHttpsProxy binding across dev, stg (1:N), stress-test, preprod, and prod.
+  tags:
+    - gcp
+    - tls
+    - ssl
+    - load-balancer
+    - auto-renewal
+    - quality-gate
+spec:
+  owner: group:resiliency-group
+  type: workflow
+
+  parameters:
+    - title: 1. Target Service, Environment & Endpoints Where Certificates Will Be Updated
+      required: [targetEntity, targetEnvironment]
+      properties:
+        targetEntity:
+          title: Target Catalog Service
+          type: string
+          default: component:default/aegis-ui
+          ui:field: EntityPicker
+          ui:options:
+            catalogFilter:
+              kind: [Component, Resource]
+        targetEnvironment:
+          title: Target Environment Tier
+          type: string
+          default: all
+          enum: [all, dev, stg, stress-test, preprod, prod]
+          enumNames:
+            - "All Environments (dev, stg [1:N], stress-test, preprod, prod)"
+            - "dev — Development"
+            - "stg — Staging (All STG Endpoints)"
+            - "stress-test — Stress Test"
+            - "preprod — Pre-Production"
+            - "prod — Production"
+        targetEndpoints:
+          title: Target Endpoints Where SSL Certificates Will Be Updated (Optional Override)
+          description: Select specific service endpoints to update, or leave as default to dynamically auto-discover all catalog-annotated endpoints (resiliency.idp/endpoints.*) for the selected Target Catalog Service and Environment Tier.
+          type: array
+          uniqueItems: true
+          default:
+            - https://dev.ui.aegis.cloud.goog/healthz
+            - https://stg-web.ui.aegis.cloud.goog/healthz
+            - https://stg-cdn.ui.aegis.cloud.goog/healthz
+            - https://stg-canary.ui.aegis.cloud.goog/healthz
+            - https://stress.ui.aegis.cloud.goog/healthz
+            - https://preprod.ui.aegis.cloud.goog/healthz
+            - https://prod.ui.aegis.cloud.goog/healthz
+          items:
+            type: string
+            enum:
+              - https://dev.ui.aegis.cloud.goog/healthz
+              - https://stg-web.ui.aegis.cloud.goog/healthz
+              - https://stg-cdn.ui.aegis.cloud.goog/healthz
+              - https://stg-canary.ui.aegis.cloud.goog/healthz
+              - https://stress.ui.aegis.cloud.goog/healthz
+              - https://preprod.ui.aegis.cloud.goog/healthz
+              - https://prod.ui.aegis.cloud.goog/healthz
+            enumNames:
+              - "[DEV] https://dev.ui.aegis.cloud.goog/healthz (Domain: dev.ui.aegis.cloud.goog)"
+              - "[STG - web] https://stg-web.ui.aegis.cloud.goog/healthz (Domain: stg-web.ui.aegis.cloud.goog)"
+              - "[STG - cdn] https://stg-cdn.ui.aegis.cloud.goog/healthz (Domain: stg-cdn.ui.aegis.cloud.goog)"
+              - "[STG - canary] https://stg-canary.ui.aegis.cloud.goog/healthz (Domain: stg-canary.ui.aegis.cloud.goog)"
+              - "[STRESS-TEST] https://stress.ui.aegis.cloud.goog/healthz (Domain: stress.ui.aegis.cloud.goog)"
+              - "[PREPROD] https://preprod.ui.aegis.cloud.goog/healthz (Domain: preprod.ui.aegis.cloud.goog)"
+              - "[PROD] https://prod.ui.aegis.cloud.goog/healthz (Domain: prod.ui.aegis.cloud.goog)"
+          ui:widget: checkboxes
+        endpointKey:
+          title: Optional Specific Endpoint Sub-Key Filter (e.g. web, cdn, canary)
+          type: string
+          default: ""
+          description: Leave blank to use the checked Target Endpoints above.
+
+    - title: 2. GCP Load Balancer & Cryptographic Parameters
+      required: [gcpProject, targetHttpsProxy, keyAlgorithm, validityDays]
+      properties:
+        gcpProject:
+          title: GCP Project ID
+          type: string
+          default: aegis-prod-cloud
+        targetHttpsProxy:
+          title: GCP TargetHttpsProxy Resource
+          type: string
+          default: aegis-ui-https-proxy
+        keyAlgorithm:
+          title: Cryptographic Key & Signature Algorithm
+          type: string
+          default: ECDSA-P256
+          enum: [ECDSA-P256, RSA-2048]
+          enumNames:
+            - "ECDSA P-256 (ecdsa-with-SHA256 — Recommended)"
+            - "RSA 2048-bit (sha256WithRSAEncryption)"
+        validityDays:
+          title: Managed Certificate Validity Period (Days)
+          type: integer
+          default: 90
+
+    - title: 3. Quality Gate — Manual Approval of Per-Environment Certificate Diff
+      required: [approvalMode, manualApprovalConfirmed, approverId]
+      properties:
+        approvalMode:
+          title: Quality Gate Approval Mode
+          type: string
+          default: pre-approved-in-form
+          enum: [pre-approved-in-form, wait-for-live-ui-approval]
+          enumNames:
+            - "Approve Per-Environment Certificate Diff Now (Form Attestation)"
+            - "Pause Workflow at Step 2 & Wait for Live Manual Approval Click in Backstage UI"
+        approverId:
+          title: Approver / SRE Reviewer Identity
+          type: string
+          default: platform-sre@aegis.internal
+        manualApprovalConfirmed:
+          title: I have reviewed the target endpoints and approve rotating the SSL certificates across the selected environments
+          type: boolean
+          default: true
+
+  steps:
+    - id: gcp-authorize-dns
+      name: Step 1 — Resolve Target Endpoints, Verify DNS-01 Auth & Generate Per-Env Certificate Diff
+      action: resiliency:gcp-lb:authorize-dns
+      input:
+        entityRef: ${{ parameters.targetEntity }}
+        environment: ${{ parameters.targetEnvironment }}
+        endpointKey: ${{ parameters.endpointKey }}
+        targetEndpoints: ${{ parameters.targetEndpoints }}
+        keyAlgorithm: ${{ parameters.keyAlgorithm }}
+        validityDays: ${{ parameters.validityDays }}
+        gcpProject: ${{ parameters.gcpProject }}
+        targetHttpsProxy: ${{ parameters.targetHttpsProxy }}
+
+    - id: gcp-quality-gate
+      name: Step 2 — Quality Gate (Manual Approval & Per-Environment Certificate Diff Review)
+      action: resiliency:gcp-lb:quality-gate-approval
+      input:
+        entityRef: ${{ parameters.targetEntity }}
+        environment: ${{ parameters.targetEnvironment }}
+        gateId: ${{ steps['gcp-authorize-dns'].output.gateId }}
+        approvalMode: ${{ parameters.approvalMode }}
+        manualApprovalConfirmed: ${{ parameters.manualApprovalConfirmed }}
+        approverId: ${{ parameters.approverId }}
+        diffMarkdownByEnv: ${{ steps['gcp-authorize-dns'].output.diffMarkdownByEnv }}
+
+    - id: gcp-renew-and-bind
+      name: Step 3 — Mint GTS CA 1C3 Certificates & Bind to GCP TargetHttpsProxy
+      action: resiliency:gcp-lb:renew-and-bind
+      input:
+        entityRef: ${{ parameters.targetEntity }}
+        environment: ${{ parameters.targetEnvironment }}
+        endpointKey: ${{ parameters.endpointKey }}
+        targetEndpoints: ${{ parameters.targetEndpoints }}
+        keyAlgorithm: ${{ parameters.keyAlgorithm }}
+        validityDays: ${{ parameters.validityDays }}
+        gcpProject: ${{ parameters.gcpProject }}
+        targetHttpsProxy: ${{ parameters.targetHttpsProxy }}
+
+    - id: gcp-verify-compliance
+      name: Step 4 — Verify All Target Domains & Audit 5 SSL Compliance Pillars
+      action: resiliency:gcp-lb:verify-compliance
+      input:
+        entityRef: ${{ parameters.targetEntity }}
+        environment: ${{ parameters.targetEnvironment }}
+
+  output:
+    text:
+      - title: GCP Public Cloud Load Balancer SSL Auto-Renewal & Verification Report
+        content: |
+          ### 1. Workflow Scope & Target Endpoints Updated
+          - **Target Catalog Service:** `${{ parameters.targetEntity }}`
+          - **Environment Tier Scope:** `${{ parameters.targetEnvironment }}`
+          - **Target Endpoints Updated (${{ steps['gcp-renew-and-bind'].output.renewedCount }}):** `${{ steps['gcp-renew-and-bind'].output.targetEndpointUrls }}`
+          - **Verified Domains (CN / SANs):** `${{ steps['gcp-renew-and-bind'].output.verifiedDomains }}`
+          - **DNS-01 Authorization Status:** `${{ steps['gcp-authorize-dns'].output.authorizationStatus }}` (`${{ steps['gcp-authorize-dns'].output.dnsRecord }}`)
+          - **Quality Gate Status:** `${{ steps['gcp-quality-gate'].output.gateStatus }}` by `${{ steps['gcp-quality-gate'].output.approvedBy }}` at `${{ steps['gcp-quality-gate'].output.approvedAt }}`
+          - **Overall 5-Pillar Compliance Verdict:** `${{ steps['gcp-verify-compliance'].output.overallCompliance }}`
+
+          ---
+
+          ### 2. All Verified Domains with New Certificates
+          ${{ steps['gcp-verify-compliance'].output.verifiedDomainsSummary }}
+
+          ---
+
+          ${{ steps['gcp-renew-and-bind'].output.renewalSummaryMarkdown }}
+
+          ---
+
+          ${{ steps['gcp-renew-and-bind'].output.perEnvDiffMarkdown }}

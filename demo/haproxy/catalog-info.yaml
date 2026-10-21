@@ -15,6 +15,23 @@ kind: Component
 metadata:
   name: hello-world-app
   description: Sandbox Hello World application fronted by HAProxy
+  tags:
+    - env:dev
+    - env:stg
+    - env:stress-test
+    - env:preprod
+    - env:prod
+    - ssl-monitored
+    - haproxy-edge
+  annotations:
+    resiliency.idp/ssl-provider: 'haproxy-edge'
+    resiliency.idp/ssl-renewal-mode: 'manual-or-template'
+    resiliency.idp/endpoints.dev: 'https://dev.hello.internal:8443/healthz'
+    resiliency.idp/endpoints.stg.east: 'https://stg-east.hello.internal:8443/healthz'
+    resiliency.idp/endpoints.stg.west: 'https://stg-west.hello.internal:8443/healthz'
+    resiliency.idp/endpoints.stress-test: 'https://stress.hello.internal:8443/healthz'
+    resiliency.idp/endpoints.preprod: 'https://preprod.hello.internal:8443/healthz'
+    resiliency.idp/endpoints.prod: 'https://hello.internal:8443/healthz'
   links:
     - url: https://127.0.0.1:8443
       title: Live HAProxy HTTPS Endpoint
@@ -34,6 +51,14 @@ kind: Resource
 metadata:
   name: haproxy-hello-world-tls
   description: HAProxy Frontend TLS Certificate for Hello World App
+  tags:
+    - env:dev
+    - env:stg
+    - env:stress-test
+    - env:preprod
+    - env:prod
+    - ssl-monitored
+    - haproxy-edge
   annotations:
     resiliency.idp/cert-provider: "Self-Signed (OpenSSL)"
     resiliency.idp/cert-version: "v1 (Serial: 3C:7B:36:5E:61:21:1E:6A:73:45:27:F3:42:C5:6E:5F:FA:21:5C:E2)"
@@ -42,6 +67,13 @@ metadata:
     resiliency.idp/cert-status: "Healthy"
     resiliency.idp/haproxy-host: "127.0.0.1:8443"
     resiliency.idp/haproxy-pem-path: "/etc/haproxy/certs/hello-world.pem"
+    resiliency.idp/ssl-provider: 'haproxy-edge'
+    resiliency.idp/ssl-renewal-mode: 'manual-or-template'
+    resiliency.idp/endpoints.dev: 'https://dev.hello.internal:8443/healthz'
+    resiliency.idp/endpoints.stg: 'https://stg.hello.internal:8443/healthz'
+    resiliency.idp/endpoints.stress-test: 'https://stress.hello.internal:8443/healthz'
+    resiliency.idp/endpoints.preprod: 'https://preprod.hello.internal:8443/healthz'
+    resiliency.idp/endpoints.prod: 'https://hello.internal:8443/healthz'
   links:
     - url: http://localhost:3000/create/templates/default/update-haproxy-tls-cert?formData=%7B%22certEntity%22%3A%22resource%3Adefault%2Fhaproxy-hello-world-tls%22%7D
       title: Rotate Certificate

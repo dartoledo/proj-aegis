@@ -3,6 +3,14 @@ kind: Component
 metadata:
   name: aegis-auth
   description: Authentication service that validates users and issues JWTs
+  tags:
+    - env:dev
+    - env:stg
+    - env:stress-test
+    - env:preprod
+    - env:prod
+    - ssl-monitored
+    - private-cloud-lb
   annotations:
     backstage.io/kubernetes-label-selector: 'app=auth'
     backstage.io/techdocs-ref: dir:.
@@ -12,11 +20,22 @@ metadata:
     resiliency.idp/k8s-min-replicas: '1'
     resiliency.idp/k8s-max-replicas: '10'
     resiliency.idp/k8s-health-url: 'http://127.0.0.1:30001'
+    resiliency.idp/ssl-provider: 'private-cloud-lb'
+    resiliency.idp/ssl-renewal-mode: 'self-renewing-monitored'
+    resiliency.idp/ssl-auto-renew-threshold-days: '15'
+    resiliency.idp/endpoints.dev: 'https://dev.auth.internal:8443/healthz'
+    resiliency.idp/endpoints.stg.primary: 'https://stg.auth.internal:8443/healthz'
+    resiliency.idp/endpoints.stg.eu-central: 'https://stg-eu.auth.internal:8443/healthz'
+    resiliency.idp/endpoints.stg.partner-sso: 'https://stg-sso.auth.internal:8443/healthz'
+    resiliency.idp/endpoints.stress-test: 'https://stress.auth.internal:8443/healthz'
+    resiliency.idp/endpoints.preprod: 'https://preprod.auth.internal:8443/healthz'
+    resiliency.idp/endpoints.prod.us-east: 'https://prod.auth.internal:8443/healthz'
+    resiliency.idp/endpoints.prod.dr-west: 'https://prod-dr.auth.internal:8443/healthz'
   links:
-    - url: /create/templates/default/k8s-day2-operations?formData=%7B%22componentEntity%22%3A%22component%3Adefault%2Faegis-auth%22%2C%22operationType%22%3A%22scale%22%7D
+    - url: http://localhost:3000/create/templates/default/k8s-day2-operations?formData=%7B%22componentEntity%22%3A%22component%3Adefault%2Faegis-auth%22%2C%22operationType%22%3A%22scale%22%7D
       title: Scale K8s Replicas (Day-2)
       icon: dashboard
-    - url: /create/templates/default/k8s-day2-operations?formData=%7B%22componentEntity%22%3A%22component%3Adefault%2Faegis-auth%22%2C%22operationType%22%3A%22rolling-restart%22%7D
+    - url: http://localhost:3000/create/templates/default/k8s-day2-operations?formData=%7B%22componentEntity%22%3A%22component%3Adefault%2Faegis-auth%22%2C%22operationType%22%3A%22rolling-restart%22%7D
       title: Rolling Restart Pods (Day-2)
       icon: refresh
 spec:

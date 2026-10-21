@@ -83,6 +83,13 @@ import {
   scaffolderModuleK8sDay2Ops,
 } from './modules/k8sDay2OpsModule';
 
+// Project Aegis: Extensible Multi-Environment & Multi-Provider SSL Compliance Tracker
+import {
+  catalogModuleSslEndpointTracker,
+  scaffolderModuleSslEndpointTracker,
+  sslEndpointTrackerPlugin,
+} from './modules/sslEndpointTrackerModule';
+
 backend.add(scaffolderModuleHaproxyTls);
 backend.add(catalogModuleHaproxyTls);
 backend.add(resiliencyTlsPlugin);
@@ -90,6 +97,10 @@ backend.add(resiliencyTlsPlugin);
 backend.add(scaffolderModuleK8sDay2Ops);
 backend.add(catalogModuleK8sDay2Ops);
 backend.add(resiliencyK8sPlugin);
+
+backend.add(scaffolderModuleSslEndpointTracker);
+backend.add(catalogModuleSslEndpointTracker);
+backend.add(sslEndpointTrackerPlugin);
 
 backend.start();
 
