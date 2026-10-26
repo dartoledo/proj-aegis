@@ -23,7 +23,13 @@ metadata:
     - env:prod
     - ssl-monitored
     - haproxy-edge
+    - ingress:internet-facing
+    - dns:private-split-horizon
   annotations:
+    resiliency.idp/exposure-scope: 'internet-facing'
+    resiliency.idp/dns-scope: 'private-split-horizon'
+    resiliency.idp/ingress-type: 'Edge Reverse Proxy & HAProxy TLS Gateway'
+    resiliency.idp/software-stack: '[{"name":"HAProxy","version":"3.0.0","category":"reverse-proxy","description":"Master-worker edge load balancer & TLS terminator"},{"name":"Node.js","version":"22.14.0","category":"runtime","description":"Upstream container microservice"},{"name":"OpenSSL","version":"3.2.1","category":"crypto-library","description":"Edge TLS 1.3 protocol engine"},{"name":"Alpine Linux","version":"3.20","category":"runtime","description":"Hardened minimal container OS"}]'
     resiliency.idp/ssl-provider: 'haproxy-edge'
     resiliency.idp/ssl-renewal-mode: 'manual-or-template'
     resiliency.idp/endpoints.dev: 'https://dev.hello.internal:8443/healthz'
@@ -59,10 +65,16 @@ metadata:
     - env:prod
     - ssl-monitored
     - haproxy-edge
+    - ingress:internet-facing
+    - dns:private-split-horizon
   annotations:
+    resiliency.idp/exposure-scope: 'internet-facing'
+    resiliency.idp/dns-scope: 'private-split-horizon'
+    resiliency.idp/ingress-type: 'Edge Reverse Proxy & HAProxy TLS Gateway'
+    resiliency.idp/software-stack: '[{"name":"HAProxy","version":"3.0.0","category":"reverse-proxy","description":"Master-worker edge load balancer & TLS terminator"},{"name":"OpenSSL","version":"3.2.1","category":"crypto-library","description":"Edge TLS 1.3 protocol engine"}]'
     resiliency.idp/cert-provider: "Self-Signed (OpenSSL)"
-    resiliency.idp/cert-version: "v1 (Serial: 3C:7B:36:5E:61:21:1E:6A:73:45:27:F3:42:C5:6E:5F:FA:21:5C:E2)"
-    resiliency.idp/cert-expiry: "2027-01-17T17:19:48.000Z"
+    resiliency.idp/cert-version: "v1 (Serial: 03:E3:06:3C:B7:AF:03:9C:3B:8C:5B:0E:7F:BD:B1:6C:67:71:E1:C1)"
+    resiliency.idp/cert-expiry: "2027-01-24T18:05:10.000Z"
     resiliency.idp/days-remaining: "90"
     resiliency.idp/cert-status: "Healthy"
     resiliency.idp/haproxy-host: "127.0.0.1:8443"

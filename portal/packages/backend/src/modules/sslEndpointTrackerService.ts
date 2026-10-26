@@ -11,6 +11,23 @@ export type SslRenewalMode =
   | 'self-renewing-monitored'
   | 'workflow-auto-renew';
 
+export type IngressExposureScope = 'internet-facing' | 'internal-only';
+export type DnsResolutionScope = 'public-authoritative' | 'private-split-horizon';
+
+export interface SoftwareStackDependency {
+  name: string;
+  version: string;
+  category:
+    | 'runtime'
+    | 'web-server'
+    | 'reverse-proxy'
+    | 'database'
+    | 'framework'
+    | 'crypto-library';
+  description?: string;
+  cveStatus?: 'SECURE' | 'WARNING' | 'CRITICAL';
+}
+
 export const VALID_SSL_ENVIRONMENTS: readonly SslEnvironmentTier[] = [
   'dev',
   'stg',
@@ -70,6 +87,9 @@ export interface TrackedSslEndpointRecord {
   autoRenewThresholdDays: number;
   gcpProject?: string | null;
   gcpTargetProxy?: string | null;
+  exposureScope?: IngressExposureScope;
+  dnsScope?: DnsResolutionScope;
+  ingressType?: string;
   lastProbedAt: string;
   certificate: X509CertificateComplianceDetails;
 }
@@ -86,6 +106,11 @@ export interface EntitySslTrackerRollup {
   environmentCounts: Record<SslEnvironmentTier, number>;
   endpoints: TrackedSslEndpointRecord[];
   lastScannedAt: string;
+  exposureCounts?: {
+    internetFacing: number;
+    internalOnly: number;
+  };
+  softwareStack?: SoftwareStackDependency[];
 }
 
 export interface GcpAutoRenewalDiffPlan {
@@ -173,6 +198,9 @@ interface ParsedAnnotationEndpoint {
   simulateWeakCrypto: boolean;
   simulateDaysRemaining: number | null;
   haproxyHost?: string | null;
+  exposureScope?: IngressExposureScope;
+  dnsScope?: DnsResolutionScope;
+  ingressType?: string;
 }
 
 // In-memory store keyed by endpointId ("<entityRef>:<env>:<endpointKey>")
@@ -189,6 +217,7 @@ const gcpQualityGateStore = new Map<string, GcpQualityGateState>();
 const latestEntityGateMap = new Map<string, string>();
 // Tracks endpointIds that have been remediated from weak crypto
 const remediatedWeakCryptoEndpoints = new Set<string>();
+const entitySoftwareStackStore = new Map<string, SoftwareStackDependency[]>();
 const DEFAULT_STATE_FILE_PATH =
   process.env.AEGIS_SSL_TRACKER_STATE_FILE ||
   path.resolve(process.cwd(), '.ssl_tracker_state.json');
@@ -207,6 +236,7 @@ export function saveSslTrackerStateToDisk(filePath?: string): void {
     gcpQualityGateStore: Array.from(gcpQualityGateStore.entries()),
     latestEntityGateMap: Array.from(latestEntityGateMap.entries()),
     remediatedWeakCryptoEndpoints: Array.from(remediatedWeakCryptoEndpoints),
+    entitySoftwareStackStore: Array.from(entitySoftwareStackStore.entries()),
   };
   fs.writeFileSync(target, JSON.stringify(state, null, 2), 'utf-8');
 }
@@ -244,6 +274,10 @@ export function loadSslTrackerStateFromDisk(filePath?: string): boolean {
     remediatedWeakCryptoEndpoints.clear();
     for (const item of state.remediatedWeakCryptoEndpoints || []) {
       remediatedWeakCryptoEndpoints.add(item);
+    }
+    entitySoftwareStackStore.clear();
+    for (const [k, v] of state.entitySoftwareStackStore || []) {
+      entitySoftwareStackStore.set(k, v);
     }
     return true;
   } catch {
@@ -454,6 +488,59 @@ export function evaluateExpiryAndRenewalSla(
   return { expiryStatus, findings };
 }
 
+export function parseEntitySoftwareStack(entity: Entity): SoftwareStackDependency[] {
+  const raw = entity.metadata.annotations?.['resiliency.idp/software-stack'];
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed as SoftwareStackDependency[];
+      }
+    } catch {
+      // fall through to defaults
+    }
+  }
+
+  const name = entity.metadata.name;
+  switch (name) {
+    case 'aegis-ui':
+      return [
+        { name: 'node', version: '20.11.0', category: 'runtime', description: 'Node.js runtime' },
+        { name: 'react', version: '18.2.0', category: 'framework', description: 'React frontend framework' },
+        { name: 'nginx', version: '1.25.3', category: 'web-server', description: 'Static asset & SPA server' },
+        { name: 'openssl', version: '3.0.13', category: 'crypto-library', description: 'TLS termination crypto' },
+      ];
+    case 'aegis-backend':
+      return [
+        { name: 'node', version: '20.11.0', category: 'runtime', description: 'Node.js runtime' },
+        { name: 'express', version: '4.18.2', category: 'framework', description: 'HTTP API framework' },
+        { name: 'openssl', version: '3.0.13', category: 'crypto-library', description: 'TLS termination crypto' },
+      ];
+    case 'aegis-auth':
+      return [
+        { name: 'node', version: '20.11.0', category: 'runtime', description: 'Node.js runtime' },
+        { name: 'express', version: '4.18.2', category: 'framework', description: 'OIDC/SAML auth framework' },
+        { name: 'openssl', version: '3.0.13', category: 'crypto-library', description: 'JWT signing & TLS' },
+      ];
+    case 'aegis-db':
+      return [
+        { name: 'postgresql', version: '15.4', category: 'database', description: 'Primary relational datastore' },
+        { name: 'openssl', version: '3.0.13', category: 'crypto-library', description: 'TLS for DB connections' },
+      ];
+    case 'haproxy-hello-world-tls':
+    case 'hello-world-app':
+      return [
+        { name: 'haproxy', version: '2.8.5', category: 'reverse-proxy', description: 'Edge TLS termination & load balancing' },
+        { name: 'openssl', version: '3.0.13', category: 'crypto-library', description: 'HAProxy TLS crypto backend' },
+      ];
+    default:
+      return [
+        { name: 'node', version: '20.11.0', category: 'runtime', description: 'Node.js runtime' },
+        { name: 'openssl', version: '3.0.13', category: 'crypto-library', description: 'TLS crypto' },
+      ];
+  }
+}
+
 /**
  * Parse 1:N endpoints per environment from Backstage Catalog Entity annotations.
  * Supports both:
@@ -498,6 +585,26 @@ export function parseEntityEnvironmentEndpoints(
   const gcpTargetProxy =
     annotations['resiliency.idp/gcp-target-https-proxy'] || null;
   const haproxyHost = annotations['resiliency.idp/haproxy-host'] || null;
+
+  const defaultExposure: IngressExposureScope =
+    (annotations['resiliency.idp/exposure-scope'] as IngressExposureScope) ||
+    (defaultProvider === 'gcp-cloud-lb' ||
+    (Array.isArray(entity.metadata.tags) &&
+      entity.metadata.tags.includes('ingress:internet-facing'))
+      ? 'internet-facing'
+      : 'internal-only');
+  const defaultDnsScope: DnsResolutionScope =
+    (annotations['resiliency.idp/dns-scope'] as DnsResolutionScope) ||
+    (defaultExposure === 'internet-facing'
+      ? 'public-authoritative'
+      : 'private-split-horizon');
+  const defaultIngressType: string =
+    annotations['resiliency.idp/ingress-type'] ||
+    (defaultProvider === 'gcp-cloud-lb'
+      ? 'Cloud External Application Load Balancer (GCP TargetHttpsProxy)'
+      : defaultProvider === 'haproxy-edge'
+      ? 'Edge Reverse Proxy & HAProxy TLS Gateway'
+      : 'Private Cloud Load Balancer (VPC-Internal)');
 
   const parsed: ParsedAnnotationEndpoint[] = [];
   const prefix = 'resiliency.idp/endpoints.';
@@ -574,8 +681,95 @@ export function parseEntityEnvironmentEndpoints(
         simulateWeakCrypto: weakCryptoFlag && !isRemediated,
         simulateDaysRemaining: Number.isNaN(simDays as number) ? null : simDays,
         haproxyHost,
+        exposureScope: defaultExposure,
+        dnsScope: defaultDnsScope,
+        ingressType: defaultIngressType,
       });
     });
+  }
+
+  // Fallback: synthesize default environment endpoints when no explicit endpoints.* annotations exist
+  if (parsed.length === 0) {
+    const hasHaproxyHost = Boolean(haproxyHost);
+    const isTlsEdgeResource =
+      serviceName === 'haproxy-hello-world-tls' ||
+      serviceName === 'hello-world-app';
+    const k8sHealthUrl = annotations['resiliency.idp/k8s-health-url'] || '';
+    const hasCertAnnotation =
+      Boolean(annotations['resiliency.idp/cert-expiry']) ||
+      Boolean(annotations['resiliency.idp/cert-provider']);
+
+    if (hasHaproxyHost || isTlsEdgeResource) {
+      const defaultUrl = 'https://hello.internal:8443/healthz';
+      for (const envTier of VALID_SSL_ENVIRONMENTS) {
+        parsed.push({
+          entityRef,
+          serviceName,
+          environment: envTier,
+          endpointKey: 'default',
+          endpointUrl: defaultUrl,
+          providerType: defaultProvider,
+          renewalMode: defaultRenewalMode,
+          autoRenewThresholdDays: thresholdDays,
+          gcpProject,
+          gcpTargetProxy,
+          simulateWeakCrypto: false,
+          simulateDaysRemaining: null,
+          haproxyHost,
+          exposureScope: defaultExposure,
+          dnsScope: defaultDnsScope,
+          ingressType: defaultIngressType,
+        });
+      }
+    } else if (k8sHealthUrl) {
+      const httpsUrl = k8sHealthUrl.startsWith('http://')
+        ? k8sHealthUrl.replace('http://', 'https://')
+        : k8sHealthUrl.startsWith('https://')
+        ? k8sHealthUrl
+        : `https://${k8sHealthUrl}`;
+      for (const envTier of VALID_SSL_ENVIRONMENTS) {
+        parsed.push({
+          entityRef,
+          serviceName,
+          environment: envTier,
+          endpointKey: 'default',
+          endpointUrl: httpsUrl,
+          providerType: defaultProvider,
+          renewalMode: defaultRenewalMode,
+          autoRenewThresholdDays: thresholdDays,
+          gcpProject,
+          gcpTargetProxy,
+          simulateWeakCrypto: false,
+          simulateDaysRemaining: null,
+          haproxyHost,
+          exposureScope: defaultExposure,
+          dnsScope: defaultDnsScope,
+          ingressType: defaultIngressType,
+        });
+      }
+    } else if (hasCertAnnotation) {
+      const defaultUrl = 'https://localhost:8443/healthz';
+      for (const envTier of VALID_SSL_ENVIRONMENTS) {
+        parsed.push({
+          entityRef,
+          serviceName,
+          environment: envTier,
+          endpointKey: 'default',
+          endpointUrl: defaultUrl,
+          providerType: 'haproxy-edge',
+          renewalMode: 'manual-or-template',
+          autoRenewThresholdDays: thresholdDays,
+          gcpProject,
+          gcpTargetProxy,
+          simulateWeakCrypto: false,
+          simulateDaysRemaining: null,
+          haproxyHost,
+          exposureScope: defaultExposure,
+          dnsScope: defaultDnsScope,
+          ingressType: defaultIngressType,
+        });
+      }
+    }
   }
 
   return parsed;
@@ -862,6 +1056,9 @@ function recordEndpointCertificate(
     autoRenewThresholdDays: target.autoRenewThresholdDays,
     gcpProject: target.gcpProject,
     gcpTargetProxy: target.gcpTargetProxy,
+    exposureScope: target.exposureScope ?? 'internal-only',
+    dnsScope: target.dnsScope ?? 'private-split-horizon',
+    ingressType: target.ingressType ?? 'Private Cloud Load Balancer (VPC-Internal)',
     lastProbedAt: new Date().toISOString(),
     certificate: cert,
   };
@@ -897,13 +1094,16 @@ export async function scanEntityEndpoints(
     records.push(saved);
   }
 
-  return buildEntityRollup(entityRef, entity.metadata.name, records);
+  const softwareStack = parseEntitySoftwareStack(entity);
+  entitySoftwareStackStore.set(entityRef, softwareStack);
+  return buildEntityRollup(entityRef, entity.metadata.name, records, softwareStack);
 }
 
 export function buildEntityRollup(
   entityRef: string,
   serviceName: string,
   records: TrackedSslEndpointRecord[],
+  softwareStack?: SoftwareStackDependency[],
 ): EntitySslTrackerRollup {
   const envCounts: Record<SslEnvironmentTier, number> = {
     dev: 0,
@@ -951,6 +1151,11 @@ export function buildEntityRollup(
     environmentCounts: envCounts,
     endpoints: records,
     lastScannedAt: new Date().toISOString(),
+    exposureCounts: {
+      internetFacing: records.filter(r => r.exposureScope === 'internet-facing').length,
+      internalOnly: records.filter(r => r.exposureScope === 'internal-only').length,
+    },
+    softwareStack: softwareStack ?? [],
   };
 }
 
@@ -1007,7 +1212,7 @@ export function getEntitySslRollupFromStore(
   if (matching.length === 0) {
     return null;
   }
-  return buildEntityRollup(entityRef, matching[0].serviceName, matching);
+  return buildEntityRollup(entityRef, matching[0].serviceName, matching, entitySoftwareStackStore.get(entityRef));
 }
 
 export function getFleetSslInventory(): {
@@ -1524,4 +1729,5 @@ export function clearSslTrackerStoreForTests(): void {
   gcpQualityGateStore.clear();
   latestEntityGateMap.clear();
   remediatedWeakCryptoEndpoints.clear();
+  entitySoftwareStackStore.clear();
 }

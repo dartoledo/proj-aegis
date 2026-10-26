@@ -1,0 +1,102 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: create-ciam-service
+  title: 'Golden Path: Secure CIAM Microservice & Zero-Trust Token Verification'
+  description: Scaffolds a production-ready CIAM microservice with embedded JWT authentication middleware, Zero-Trust security validation, and pre-verified route policies.
+  tags:
+    - ciam
+    - security
+    - golden-path
+    - jwt
+spec:
+  owner: group:resiliency-group
+  type: service
+
+  parameters:
+    - title: 1. Service Metadata & Ownership
+      required: [serviceName, description, owner]
+      properties:
+        serviceName:
+          title: Service Identifier
+          type: string
+          description: Unique kebab-case name of the CIAM microservice
+          default: ciam-identity-broker
+          ui:autofocus: true
+        description:
+          title: Description
+          type: string
+          description: Purpose and domain boundary of the service
+          default: High-security customer identity mediation and token exchange service
+        owner:
+          title: Owner
+          type: string
+          description: Owning engineering team
+          default: group:resiliency-group
+          ui:field: EntityPicker
+          ui:options:
+            catalogFilter:
+              kind: Group
+
+    - title: 2. Zero-Trust Authentication & RBAC Policy
+      required: [signingAlgorithm, defaultRoles, tokenTtlMinutes]
+      properties:
+        signingAlgorithm:
+          title: Cryptographic Signing Algorithm
+          type: string
+          default: HS256
+          enum: [HS256, HS384, HS512]
+          description: Enforced cryptographic algorithm (alg: none is prohibited by Aegis quality gates)
+        defaultRoles:
+          title: Default Service Roles
+          type: array
+          items:
+            type: string
+          default:
+            - ciam:user
+            - service-account
+          description: Roles permitted to invoke authenticated endpoints
+        tokenTtlMinutes:
+          title: Token Validity Lifetime (Minutes)
+          type: integer
+          default: 60
+          minimum: 5
+          maximum: 1440
+          description: Maximum access token validity (max 24 hours / 1440 mins)
+
+  steps:
+    - id: mint-sandbox-credential
+      name: Mint Initial Zero-Trust CIAM Sandbox Token
+      action: ciam:token:mint-test-token
+      input:
+        subject: ${{ parameters.serviceName }}
+        roles: ${{ parameters.defaultRoles }}
+        scope: ciam:read ciam:write
+        ttlMinutes: ${{ parameters.tokenTtlMinutes }}
+        algorithm: ${{ parameters.signingAlgorithm }}
+
+    - id: verify-contract-access
+      name: Validate Token against Aegis Backend Route Policy
+      action: ciam:policy:verify-access
+      input:
+        targetService: aegis-backend
+        endpoint: /api/data
+        method: GET
+        token: ${{ steps['mint-sandbox-credential'].output.token }}
+
+  output:
+    text:
+      - title: CIAM Microservice Security Contract Verified
+        content: |
+          ### 🛡️ Aegis CIAM Golden Path Bootstrap Complete
+          
+          - **Service:** `${{ parameters.serviceName }}`
+          - **Enforced Algorithm:** `${{ parameters.signingAlgorithm }}`
+          - **Token Validity:** `${{ parameters.tokenTtlMinutes }} minutes`
+          - **Policy Contract Verification:** `Access Granted = ${{ steps['verify-contract-access'].output.allowed }}`
+          
+          #### Minted Sandbox Token (for local integration testing):
+          ```jwt
+          ${{ steps['mint-sandbox-credential'].output.token }}
+          ```
+          *Expires at: ${{ steps['mint-sandbox-credential'].output.expiresAt }}*

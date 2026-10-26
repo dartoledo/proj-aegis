@@ -90,6 +90,12 @@ import {
   sslEndpointTrackerPlugin,
 } from './modules/sslEndpointTrackerModule';
 
+// Project Aegis: CIAM Token Inspector, Policy Simulator & Sandbox Minte
+import {
+  ciamTokenPlugin,
+  scaffolderModuleCiamToken,
+} from './modules/ciamTokenModule';
+
 backend.add(scaffolderModuleHaproxyTls);
 backend.add(catalogModuleHaproxyTls);
 backend.add(resiliencyTlsPlugin);
@@ -101,6 +107,9 @@ backend.add(resiliencyK8sPlugin);
 backend.add(scaffolderModuleSslEndpointTracker);
 backend.add(catalogModuleSslEndpointTracker);
 backend.add(sslEndpointTrackerPlugin);
+
+backend.add(scaffolderModuleCiamToken);
+backend.add(ciamTokenPlugin);
 
 backend.start();
 

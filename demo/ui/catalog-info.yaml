@@ -11,9 +11,15 @@ metadata:
     - env:prod
     - ssl-monitored
     - gcp-cloud-lb
+    - ingress:internet-facing
+    - dns:public-authoritative
   annotations:
     backstage.io/kubernetes-label-selector: 'app=ui'
     backstage.io/techdocs-ref: dir:.
+    resiliency.idp/exposure-scope: 'internet-facing'
+    resiliency.idp/dns-scope: 'public-authoritative'
+    resiliency.idp/ingress-type: 'Cloud External Application Load Balancer (GCP TargetHttpsProxy)'
+    resiliency.idp/software-stack: '[{"name":"React","version":"18.3.1","category":"framework","description":"Frontend UI component engine"},{"name":"TypeScript","version":"5.8.2","category":"runtime","description":"Type-safe compiler & type system"},{"name":"Material-UI","version":"5.16.7","category":"framework","description":"Google Material Design UI system"},{"name":"Backstage Core","version":"1.34.0","category":"framework","description":"Developer Portal Core Framework"},{"name":"Envoy / GCP Proxy","version":"1.30.1","category":"web-server","description":"Cloud External HTTPS Proxy & Ingress"}]'
     resiliency.idp/k8s-namespace: 'default'
     resiliency.idp/k8s-deployment: 'ui'
     resiliency.idp/k8s-baseline-replicas: '1'

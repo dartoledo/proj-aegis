@@ -221,6 +221,12 @@ catalog:
       rules:
         - allow: [Template]
 
+    # CIAM Golden Path Service Scaffolding Template
+    - type: file
+      target: ../../examples/ciam-service-template/template.yaml
+      rules:
+        - allow: [Template]
+
     # Local example organizational data
     - type: file
       target: ../../examples/org.yaml

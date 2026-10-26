@@ -15,6 +15,7 @@ import {
   loadSslTrackerStateFromDisk,
   matchHostnameSan,
   parseEntityEnvironmentEndpoints,
+  parseEntitySoftwareStack,
   previewMockGcpAutoRenewalDiff,
   remediatePrivateCloudEndpointCrypto,
   saveSslTrackerStateToDisk,
@@ -370,5 +371,116 @@ describe('sslEndpointTrackerService', () => {
     } finally {
       fs.unlinkSync(tmpFile);
     }
+  });
+
+  it('synthesizes default multi-tier endpoints for catalogue elements without explicit endpoints.* annotations', () => {
+    const haproxyEntity = {
+      apiVersion: 'backstage.io/v1alpha1',
+      kind: 'Component',
+      metadata: {
+        name: 'edge-svc',
+        annotations: {
+          'resiliency.idp/haproxy-host': '127.0.0.1:8443',
+        },
+      },
+    };
+
+    const haproxyParsed = parseEntityEnvironmentEndpoints(haproxyEntity as any);
+    expect(haproxyParsed).toHaveLength(5);
+    for (const e of haproxyParsed) {
+      expect(e.endpointUrl).toBe('https://hello.internal:8443/healthz');
+    }
+
+    const k8sEntity = {
+      apiVersion: 'backstage.io/v1alpha1',
+      kind: 'Component',
+      metadata: {
+        name: 'backend-svc',
+        annotations: {
+          'resiliency.idp/k8s-health-url': 'http://127.0.0.1:30002/items',
+        },
+      },
+    };
+
+    const k8sParsed = parseEntityEnvironmentEndpoints(k8sEntity as any);
+    expect(k8sParsed).toHaveLength(5);
+    for (const e of k8sParsed) {
+      expect(e.endpointUrl).toContain('https://');
+    }
+
+    const certEntity = {
+      apiVersion: 'backstage.io/v1alpha1',
+      kind: 'Component',
+      metadata: {
+        name: 'cert-svc',
+        annotations: {
+          'resiliency.idp/cert-expiry': '2027-01-01T00:00:00Z',
+        },
+      },
+    };
+
+    const certParsed = parseEntityEnvironmentEndpoints(certEntity as any);
+    expect(certParsed).toHaveLength(5);
+    for (const e of certParsed) {
+      expect(e.providerType).toBe('haproxy-edge');
+      expect(e.renewalMode).toBe('manual-or-template');
+      expect(e.endpointUrl).toBe('https://localhost:8443/healthz');
+    }
+  });
+
+  it('classifies domain ingress exposure scope and parses application software stack (SBOM)', async () => {
+    const publicEntity = {
+      apiVersion: 'backstage.io/v1alpha1',
+      kind: 'Component',
+      metadata: {
+        name: 'aegis-ui',
+        annotations: {
+          'resiliency.idp/ssl-provider': 'gcp-cloud-lb',
+          'resiliency.idp/exposure-scope': 'internet-facing',
+          'resiliency.idp/endpoints.prod':
+            'https://prod.ui.aegis.cloud.goog/healthz',
+        },
+      },
+    };
+
+    const publicParsed = parseEntityEnvironmentEndpoints(publicEntity as any);
+    expect(publicParsed[0].exposureScope).toBe('internet-facing');
+    expect(publicParsed[0].dnsScope).toBe('public-authoritative');
+
+    const rollup = await scanEntityEndpoints(publicEntity as any);
+    expect(rollup?.exposureCounts?.internetFacing).toBe(1);
+    expect(Array.isArray(rollup?.softwareStack)).toBe(true);
+    expect(rollup!.softwareStack!.length).toBeGreaterThanOrEqual(1);
+    const sbomItem = rollup!.softwareStack![0];
+    expect(sbomItem.name).toBeDefined();
+    expect(sbomItem.version).toBeDefined();
+    expect(sbomItem.category).toBeDefined();
+
+    const privateEntity = {
+      apiVersion: 'backstage.io/v1alpha1',
+      kind: 'Component',
+      metadata: {
+        name: 'aegis-backend',
+        annotations: {
+          'resiliency.idp/exposure-scope': 'internal-only',
+          'resiliency.idp/endpoints.dev':
+            'https://dev.backend.internal:8443/items',
+        },
+      },
+    };
+
+    const privateParsed = parseEntityEnvironmentEndpoints(privateEntity as any);
+    expect(privateParsed[0].exposureScope).toBe('internal-only');
+    expect(privateParsed[0].dnsScope).toBe('private-split-horizon');
+
+    const softwareStack = parseEntitySoftwareStack(privateEntity as any);
+    expect(Array.isArray(softwareStack)).toBe(true);
+
+    const uiRollup = await scanEntityEndpoints(publicEntity as any);
+    expect(uiRollup?.softwareStack?.length).toBeGreaterThan(0);
+
+    const fromStore = getEntitySslRollupFromStore('component:default/aegis-ui');
+    expect(fromStore?.softwareStack).toBeDefined();
+    expect(fromStore?.softwareStack?.length).toBeGreaterThan(0);
   });
 });

@@ -1,0 +1,1 @@
+export { ciamTokenModule } from './ciamTokenModule';
