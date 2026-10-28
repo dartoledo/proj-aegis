@@ -20,6 +20,10 @@ metadata:
     resiliency.idp/dns-scope: 'private-split-horizon'
     resiliency.idp/ingress-type: 'Private Cloud Load Balancer (VPC-Internal)'
     resiliency.idp/software-stack: '[{"name":"Node.js","version":"22.14.0","category":"runtime","description":"LTS JavaScript V8 server runtime"},{"name":"Express","version":"4.21.2","category":"framework","description":"Core RESTful API microservice engine"},{"name":"TypeORM","version":"0.3.20","category":"framework","description":"Database ORM & schema migration manager"},{"name":"OpenSSL","version":"3.0.13","category":"crypto-library","description":"FIPS-ready TLS Cryptographic Engine"},{"name":"pg (node-postgres)","version":"8.13.1","category":"database","description":"PostgreSQL connection pool driver"}]'
+    goharbor.io/repository-slug: 'aegis-ciam/aegis-backend'
+    goharbor.io/host: 'harbor.aegis.internal:8880'
+    goharbor.io/image-tag: 'v1.9.2'
+    endoflife.date/products: 'nodejs@18,postgresql@14,openssl@1.1.1,alpine@3.17'
     sonarqube.org/project-key: aegis-backend
     github.com/project-slug: internal-org/aegis-backend
     resiliency.idp/k8s-namespace: 'default'

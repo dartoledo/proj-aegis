@@ -96,6 +96,8 @@ import {
   scaffolderModuleCiamToken,
 } from './modules/ciamTokenModule';
 
+import { harborEolPlugin } from './modules/harborEolModule';
+
 backend.add(scaffolderModuleHaproxyTls);
 backend.add(catalogModuleHaproxyTls);
 backend.add(resiliencyTlsPlugin);
@@ -110,6 +112,8 @@ backend.add(sslEndpointTrackerPlugin);
 
 backend.add(scaffolderModuleCiamToken);
 backend.add(ciamTokenPlugin);
+
+backend.add(harborEolPlugin);
 
 backend.start();
 

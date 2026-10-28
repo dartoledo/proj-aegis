@@ -64,7 +64,7 @@ def test_masked_secret_never_leaks_in_repr_or_str() -> None:
 
 
 def test_secret_never_surfaces_in_runtime_logs(caplog: pytest.LogCaptureFixture) -> None:
-    raw_token = "ultra-secret-bearer-xyz-98765"
+    raw_token = "mock-dummy-bearer-token-fixture"
     cfg = load_config(
         env={
             "AEGIS_SSL_TRACKER_API_TOKEN": raw_token,

@@ -7,6 +7,7 @@ import { tlsModule } from './modules/tls';
 import { k8sOpsModule } from './modules/k8sOps';
 import { sslTrackerModule } from './modules/sslTracker';
 import { ciamTokenModule } from './modules/ciamToken';
+import { harborEolModule } from './modules/harborEol';
 
 import notificationsPlugin from '@backstage/plugin-notifications/alpha';
 
@@ -20,6 +21,7 @@ export default createApp({
     k8sOpsModule,
     sslTrackerModule,
     ciamTokenModule,
+    harborEolModule,
     notificationsPlugin,
   ],
 });

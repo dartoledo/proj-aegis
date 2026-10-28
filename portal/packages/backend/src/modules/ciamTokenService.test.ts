@@ -119,10 +119,13 @@ describe('ciamTokenService', () => {
     it('detects invalid signatures when secret differs', () => {
       const token = mintCiamToken({
         subject: 'user-eva',
-        secret: 'correct-secret-123456789012345678901234567890',
+        secret: 'mock-signing-key-for-test-32bytes-001',
       });
 
-      const inspection = inspectCiamToken(token, 'wrong-secret-123456789012345678901234567890');
+      const inspection = inspectCiamToken(
+        token,
+        'mock-signing-key-for-test-32bytes-002',
+      );
       expect(inspection.validSignature).toBe(false);
       expect(inspection.complianceStatus).toBe('INVALID');
     });

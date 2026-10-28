@@ -1,0 +1,46 @@
+rules:
+  - id: aegis-supply-chain-suspicious-npm-lifecycle-script
+    languages: [json]
+    paths:
+      include:
+        - "*package.json"
+    pattern-regex: '"(preinstall|install|postinstall)"\s*:\s*"[^"]*(curl|wget|nc|netcat|bash\s+-c|sh\s+-c|base64|/dev/tcp|powershell)[^"]*"'
+    message: "Supply-Chain Alert (GuardDog Replacement): Suspicious shell/network execution inside npm lifecycle script (preinstall/install/postinstall)."
+    severity: ERROR
+
+  - id: aegis-supply-chain-base64-eval-obfuscation-js
+    languages: [javascript, typescript]
+    pattern-either:
+      - pattern: eval(Buffer.from($PAYLOAD, 'base64').toString(...))
+      - pattern: Function(Buffer.from($PAYLOAD, 'base64').toString(...))
+    message: "Supply-Chain Alert (GuardDog Replacement): Base64-encoded dynamic code evaluation detected."
+    severity: ERROR
+
+  - id: aegis-supply-chain-base64-exec-obfuscation-py
+    languages: [python]
+    pattern-either:
+      - pattern: exec(base64.b64decode($PAYLOAD))
+      - pattern: eval(base64.b64decode($PAYLOAD))
+    message: "Supply-Chain Alert (GuardDog Replacement): Base64-decoded exec/eval obfuscation detected in Python code."
+    severity: ERROR
+
+  - id: aegis-sast-python-subprocess-shell-true
+    languages: [python]
+    pattern-either:
+      - pattern: subprocess.run(..., shell=True, ...)
+      - pattern: subprocess.Popen(..., shell=True, ...)
+      - pattern: subprocess.call(..., shell=True, ...)
+    message: "SAST Alert: Avoid subprocess with shell=True to prevent command injection."
+    severity: WARNING
+
+  - id: aegis-sast-js-child-process-exec-concat
+    languages: [javascript, typescript]
+    pattern: child_process.exec($CMD + $INPUT, ...)
+    message: "SAST Alert: Potential command injection via string concatenation in child_process.exec."
+    severity: WARNING
+
+  - id: aegis-sast-python-unsafe-yaml-load
+    languages: [python]
+    pattern: yaml.load($DATA)
+    message: "SAST Alert: Unsafe yaml.load() without SafeLoader can lead to arbitrary code execution."
+    severity: ERROR
