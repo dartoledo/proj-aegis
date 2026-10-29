@@ -97,6 +97,10 @@ import {
 } from './modules/ciamTokenModule';
 
 import { harborEolPlugin } from './modules/harborEolModule';
+import { gcpCloudPosturePlugin } from './modules/gcpCloudPostureModule';
+import { livingCmdbPlugin } from './modules/livingCmdbModule';
+import { cveIntelligencePlugin } from './modules/cveIntelligenceModule';
+import { infraQualityGatePlugin } from './modules/infraQualityGateModule';
 
 backend.add(scaffolderModuleHaproxyTls);
 backend.add(catalogModuleHaproxyTls);
@@ -114,6 +118,10 @@ backend.add(scaffolderModuleCiamToken);
 backend.add(ciamTokenPlugin);
 
 backend.add(harborEolPlugin);
+backend.add(gcpCloudPosturePlugin);
+backend.add(livingCmdbPlugin);
+backend.add(cveIntelligencePlugin);
+backend.add(infraQualityGatePlugin);
 
 backend.start();
 

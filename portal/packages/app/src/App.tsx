@@ -8,6 +8,9 @@ import { k8sOpsModule } from './modules/k8sOps';
 import { sslTrackerModule } from './modules/sslTracker';
 import { ciamTokenModule } from './modules/ciamToken';
 import { harborEolModule } from './modules/harborEol';
+import { gcpPostureModule } from './modules/gcpPosture';
+import { livingCmdbModule } from './modules/livingCmdb';
+import { cveIntelModule } from './modules/cveIntel';
 
 import notificationsPlugin from '@backstage/plugin-notifications/alpha';
 
@@ -22,6 +25,9 @@ export default createApp({
     sslTrackerModule,
     ciamTokenModule,
     harborEolModule,
+    gcpPostureModule,
+    livingCmdbModule,
+    cveIntelModule,
     notificationsPlugin,
   ],
 });
