@@ -23,13 +23,13 @@ metadata:
     - env:prod
     - ssl-monitored
     - haproxy-edge
-    - ingress:internet-facing
+    - ingress:restricted-public
     - dns:private-split-horizon
   annotations:
-    resiliency.idp/exposure-scope: 'internet-facing'
+    resiliency.idp/exposure-scope: 'restricted-public'
     resiliency.idp/dns-scope: 'private-split-horizon'
     resiliency.idp/ingress-type: 'Edge Reverse Proxy & HAProxy TLS Gateway'
-    resiliency.idp/software-stack: '[{"name":"HAProxy","version":"3.0.0","category":"reverse-proxy","description":"Master-worker edge load balancer & TLS terminator"},{"name":"Node.js","version":"22.14.0","category":"runtime","description":"Upstream container microservice"},{"name":"OpenSSL","version":"3.2.1","category":"crypto-library","description":"Edge TLS 1.3 protocol engine"},{"name":"Alpine Linux","version":"3.20","category":"runtime","description":"Hardened minimal container OS"}]'
+    resiliency.idp/software-stack: '[{"name":"HAProxy","version":"3.0.0","category":"reverse-proxy","description":"Master-worker edge load balancer (legacy 1.8 sidecar has CVE-2023-40225)","cveStatus":"WARNING"},{"name":"Node.js","version":"22.15.0","category":"runtime","description":"Upstream container microservice — patched against CVE-2026-111497","cveStatus":"SECURE"},{"name":"OpenSSL","version":"3.2.1","category":"crypto-library","description":"Edge TLS 1.3 protocol engine (Medium CVE-2024-4741)","cveStatus":"WARNING"},{"name":"Alpine Linux","version":"3.20","category":"runtime","description":"Hardened minimal container OS","cveStatus":"SECURE"}]'
     goharbor.io/repository-slug: 'aegis-ciam/hello-world-app'
     goharbor.io/host: 'harbor.aegis.internal:8880'
     goharbor.io/image-tag: 'v1.4.0'
@@ -42,6 +42,9 @@ metadata:
     resiliency.idp/endpoints.stress-test: 'https://stress.hello.internal:8443/healthz'
     resiliency.idp/endpoints.preprod: 'https://preprod.hello.internal:8443/healthz'
     resiliency.idp/endpoints.prod: 'https://hello.internal:8443/healthz'
+    resiliency.idp/exposure-scope.prod: 'unrestricted-public'
+    resiliency.idp/exposure-scope.dev: 'strictly-private'
+    resiliency.idp/exposure-scope.stress-test: 'strictly-private'
   links:
     - url: https://127.0.0.1:8443
       title: Live HAProxy HTTPS Endpoint
@@ -69,20 +72,20 @@ metadata:
     - env:prod
     - ssl-monitored
     - haproxy-edge
-    - ingress:internet-facing
+    - ingress:restricted-public
     - dns:private-split-horizon
   annotations:
-    resiliency.idp/exposure-scope: 'internet-facing'
+    resiliency.idp/exposure-scope: 'restricted-public'
     resiliency.idp/dns-scope: 'private-split-horizon'
     resiliency.idp/ingress-type: 'Edge Reverse Proxy & HAProxy TLS Gateway'
-    resiliency.idp/software-stack: '[{"name":"HAProxy","version":"3.0.0","category":"reverse-proxy","description":"Master-worker edge load balancer & TLS terminator"},{"name":"OpenSSL","version":"3.2.1","category":"crypto-library","description":"Edge TLS 1.3 protocol engine"}]'
+    resiliency.idp/software-stack: '[{"name":"HAProxy","version":"3.0.0","category":"reverse-proxy","description":"Master-worker edge load balancer & TLS terminator","cveStatus":"SECURE"},{"name":"Node.js","version":"22.15.0","category":"runtime","description":"Upstream runtime — patched against CVE-2026-111497","cveStatus":"SECURE"},{"name":"OpenSSL","version":"3.2.1","category":"crypto-library","description":"Edge TLS 1.3 protocol engine (Medium CVE-2024-4741)","cveStatus":"WARNING"}]'
     goharbor.io/repository-slug: 'aegis-ciam/hello-world-app'
     goharbor.io/host: 'harbor.aegis.internal:8880'
     goharbor.io/image-tag: 'v1.4.0'
     endoflife.date/products: 'haproxy@3.0,haproxy@1.8,nodejs@22,openssl@3.2,alpine@3.20'
     resiliency.idp/cert-provider: "Self-Signed (OpenSSL)"
-    resiliency.idp/cert-version: "v1 (Serial: 0D:1D:EC:87:57:7B:D4:53:58:E6:DB:76:7B:D8:93:4A:33:31:25:4B)"
-    resiliency.idp/cert-expiry: "2027-01-26T15:09:27.000Z"
+    resiliency.idp/cert-version: "v1 (Serial: 2C:92:54:D1:E2:FD:B8:0D:B6:23:E9:F4:DB:AA:B9:AD:CA:57:3C:D3)"
+    resiliency.idp/cert-expiry: "2027-01-27T16:40:30.000Z"
     resiliency.idp/days-remaining: "90"
     resiliency.idp/cert-status: "Healthy"
     resiliency.idp/haproxy-host: "127.0.0.1:8443"
@@ -94,6 +97,9 @@ metadata:
     resiliency.idp/endpoints.stress-test: 'https://stress.hello.internal:8443/healthz'
     resiliency.idp/endpoints.preprod: 'https://preprod.hello.internal:8443/healthz'
     resiliency.idp/endpoints.prod: 'https://hello.internal:8443/healthz'
+    resiliency.idp/exposure-scope.prod: 'unrestricted-public'
+    resiliency.idp/exposure-scope.dev: 'strictly-private'
+    resiliency.idp/exposure-scope.stress-test: 'strictly-private'
   links:
     - url: http://localhost:3000/create/templates/default/update-haproxy-tls-cert?formData=%7B%22certEntity%22%3A%22resource%3Adefault%2Fhaproxy-hello-world-tls%22%7D
       title: Rotate Certificate

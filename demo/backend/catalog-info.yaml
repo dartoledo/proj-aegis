@@ -11,15 +11,15 @@ metadata:
     - env:prod
     - ssl-monitored
     - private-cloud-lb
-    - ingress:internal-only
+    - ingress:strictly-private
     - dns:private-split-horizon
   annotations:
     backstage.io/kubernetes-label-selector: 'app=backend'
     backstage.io/techdocs-ref: dir:.
-    resiliency.idp/exposure-scope: 'internal-only'
+    resiliency.idp/exposure-scope: 'strictly-private'
     resiliency.idp/dns-scope: 'private-split-horizon'
     resiliency.idp/ingress-type: 'Private Cloud Load Balancer (VPC-Internal)'
-    resiliency.idp/software-stack: '[{"name":"Node.js","version":"22.14.0","category":"runtime","description":"LTS JavaScript V8 server runtime"},{"name":"Express","version":"4.21.2","category":"framework","description":"Core RESTful API microservice engine"},{"name":"TypeORM","version":"0.3.20","category":"framework","description":"Database ORM & schema migration manager"},{"name":"OpenSSL","version":"3.0.13","category":"crypto-library","description":"FIPS-ready TLS Cryptographic Engine"},{"name":"pg (node-postgres)","version":"8.13.1","category":"database","description":"PostgreSQL connection pool driver"}]'
+    resiliency.idp/software-stack: '[{"name":"Node.js","version":"18.20.8","category":"runtime","description":"EOL Node.js 18 runtime — CRITICAL CVE-2026-111497 (V8/HTTP2 RCE) & CVE-2026-56850","cveStatus":"CRITICAL"},{"name":"Express","version":"4.21.2","category":"framework","description":"Core RESTful API microservice engine","cveStatus":"SECURE"},{"name":"TypeORM","version":"0.3.20","category":"framework","description":"Database ORM & schema migration manager","cveStatus":"SECURE"},{"name":"OpenSSL","version":"1.1.1w","category":"crypto-library","description":"EOL OpenSSL 1.1.1 — CRITICAL CVE-2024-0727 & CVE-2023-5678","cveStatus":"CRITICAL"},{"name":"pg (node-postgres)","version":"8.13.1","category":"database","description":"PostgreSQL 14 client pool (CVE-2025-1094 on DB server)","cveStatus":"WARNING"}]'
     goharbor.io/repository-slug: 'aegis-ciam/aegis-backend'
     goharbor.io/host: 'harbor.aegis.internal:8880'
     goharbor.io/image-tag: 'v1.9.2'
@@ -44,6 +44,7 @@ metadata:
     resiliency.idp/ssl-simulate-weak-crypto.stress-test.legacy-audit: 'true'
     resiliency.idp/endpoints.preprod: 'https://preprod.backend.internal:8443/items'
     resiliency.idp/endpoints.prod: 'https://prod.backend.internal:8443/items'
+    resiliency.idp/exposure-scope.stress-test.legacy-audit: 'restricted-public'
   links:
     - url: http://localhost:3000/create/templates/default/k8s-day2-operations?formData=%7B%22componentEntity%22%3A%22component%3Adefault%2Faegis-backend%22%2C%22operationType%22%3A%22scale%22%7D
       title: Scale K8s Replicas (Day-2)

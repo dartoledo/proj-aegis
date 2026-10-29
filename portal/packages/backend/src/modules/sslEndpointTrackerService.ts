@@ -11,7 +11,47 @@ export type SslRenewalMode =
   | 'self-renewing-monitored'
   | 'workflow-auto-renew';
 
-export type IngressExposureScope = 'internet-facing' | 'internal-only';
+export type IngressExposureScope =
+  | 'unrestricted-public'
+  | 'restricted-public'
+  | 'strictly-private'
+  | 'internet-facing'
+  | 'internal-only';
+
+export function normalizeExposureScope(
+  raw?: string | null,
+  fallback:
+    | 'unrestricted-public'
+    | 'restricted-public'
+    | 'strictly-private' = 'strictly-private',
+): 'unrestricted-public' | 'restricted-public' | 'strictly-private' {
+  const v = (raw || '').trim().toLowerCase();
+  if (
+    v === 'unrestricted-public' ||
+    v === 'internet-facing' ||
+    v === 'customer-facing' ||
+    v === 'open-edge'
+  ) {
+    return 'unrestricted-public';
+  }
+  if (
+    v === 'restricted-public' ||
+    v === 'partner-facing' ||
+    v === 'authenticated-edge' ||
+    v === 'acl-gated'
+  ) {
+    return 'restricted-public';
+  }
+  if (
+    v === 'strictly-private' ||
+    v === 'internal-only' ||
+    v === 'private-core'
+  ) {
+    return 'strictly-private';
+  }
+  return fallback;
+}
+
 export type DnsResolutionScope = 'public-authoritative' | 'private-split-horizon';
 
 export interface SoftwareStackDependency {
@@ -107,6 +147,9 @@ export interface EntitySslTrackerRollup {
   endpoints: TrackedSslEndpointRecord[];
   lastScannedAt: string;
   exposureCounts?: {
+    unrestrictedPublic: number;
+    restrictedPublic: number;
+    strictlyPrivate: number;
     internetFacing: number;
     internalOnly: number;
   };
@@ -249,6 +292,9 @@ export function loadSslTrackerStateFromDisk(filePath?: string): boolean {
     const state = JSON.parse(raw);
     endpointInventoryStore.clear();
     for (const [k, v] of state.endpointInventoryStore || []) {
+      if (v && v.exposureScope) {
+        v.exposureScope = normalizeExposureScope(v.exposureScope);
+      }
       endpointInventoryStore.set(k, v);
     }
     certificateHistoryStore.clear();
@@ -505,20 +551,20 @@ export function parseEntitySoftwareStack(entity: Entity): SoftwareStackDependenc
   switch (name) {
     case 'aegis-ui':
       return [
-        { name: 'node', version: '20.11.0', category: 'runtime', description: 'Node.js runtime' },
+        { name: 'node', version: '22.15.0', category: 'runtime', description: 'Node.js 22 LTS runtime — patched against CVE-2026-111497', cveStatus: 'SECURE' },
         { name: 'react', version: '18.2.0', category: 'framework', description: 'React frontend framework' },
         { name: 'nginx', version: '1.25.3', category: 'web-server', description: 'Static asset & SPA server' },
         { name: 'openssl', version: '3.0.13', category: 'crypto-library', description: 'TLS termination crypto' },
       ];
     case 'aegis-backend':
       return [
-        { name: 'node', version: '20.11.0', category: 'runtime', description: 'Node.js runtime' },
+        { name: 'node', version: '18.20.8', category: 'runtime', description: 'EOL Node.js 18 runtime — CRITICAL CVE-2026-111497 & CVE-2026-56850', cveStatus: 'CRITICAL' },
         { name: 'express', version: '4.18.2', category: 'framework', description: 'HTTP API framework' },
         { name: 'openssl', version: '3.0.13', category: 'crypto-library', description: 'TLS termination crypto' },
       ];
     case 'aegis-auth':
       return [
-        { name: 'node', version: '20.11.0', category: 'runtime', description: 'Node.js runtime' },
+        { name: 'node', version: '20.11.0', category: 'runtime', description: 'Node.js 20 LTS runtime — CRITICAL CVE-2026-111497 & CVE-2024-27980', cveStatus: 'CRITICAL' },
         { name: 'express', version: '4.18.2', category: 'framework', description: 'OIDC/SAML auth framework' },
         { name: 'openssl', version: '3.0.13', category: 'crypto-library', description: 'JWT signing & TLS' },
       ];
@@ -535,7 +581,7 @@ export function parseEntitySoftwareStack(entity: Entity): SoftwareStackDependenc
       ];
     default:
       return [
-        { name: 'node', version: '20.11.0', category: 'runtime', description: 'Node.js runtime' },
+        { name: 'node', version: '20.11.0', category: 'runtime', description: 'Node.js runtime — CRITICAL CVE-2026-111497', cveStatus: 'CRITICAL' },
         { name: 'openssl', version: '3.0.13', category: 'crypto-library', description: 'TLS crypto' },
       ];
   }
@@ -586,16 +632,25 @@ export function parseEntityEnvironmentEndpoints(
     annotations['resiliency.idp/gcp-target-https-proxy'] || null;
   const haproxyHost = annotations['resiliency.idp/haproxy-host'] || null;
 
-  const defaultExposure: IngressExposureScope =
-    (annotations['resiliency.idp/exposure-scope'] as IngressExposureScope) ||
-    (defaultProvider === 'gcp-cloud-lb' ||
+  const fallbackExposure =
+    defaultProvider === 'gcp-cloud-lb' ||
     (Array.isArray(entity.metadata.tags) &&
-      entity.metadata.tags.includes('ingress:internet-facing'))
-      ? 'internet-facing'
-      : 'internal-only');
+      (entity.metadata.tags.includes('ingress:unrestricted-public') ||
+        entity.metadata.tags.includes('ingress:internet-facing')))
+      ? 'unrestricted-public'
+      : defaultProvider === 'haproxy-edge' ||
+        (Array.isArray(entity.metadata.tags) &&
+          entity.metadata.tags.includes('ingress:restricted-public'))
+      ? 'restricted-public'
+      : 'strictly-private';
+  const defaultExposure = normalizeExposureScope(
+    annotations['resiliency.idp/exposure-scope'],
+    fallbackExposure,
+  );
   const defaultDnsScope: DnsResolutionScope =
     (annotations['resiliency.idp/dns-scope'] as DnsResolutionScope) ||
-    (defaultExposure === 'internet-facing'
+    (defaultExposure === 'unrestricted-public' ||
+    defaultExposure === 'restricted-public'
       ? 'public-authoritative'
       : 'private-split-horizon');
   const defaultIngressType: string =
@@ -667,6 +722,27 @@ export function parseEntityEnvironmentEndpoints(
       const isRemediated = remediatedWeakCryptoEndpoints.has(
         `${entityRef}:${matchedEnv}:${effectiveKey}`,
       );
+      const endpointExposureRaw =
+        annotations[
+          `resiliency.idp/exposure-scope.${matchedEnv}.${effectiveKey}`
+        ] ||
+        annotations[`resiliency.idp/exposure-scope.${matchedEnv}.${subKey}`] ||
+        annotations[`resiliency.idp/exposure-scope.${matchedEnv}`];
+      const endpointExposure: IngressExposureScope = endpointExposureRaw
+        ? normalizeExposureScope(endpointExposureRaw, defaultExposure)
+        : defaultExposure;
+      const endpointDnsScope: DnsResolutionScope =
+        (annotations[
+          `resiliency.idp/dns-scope.${matchedEnv}.${effectiveKey}`
+        ] as DnsResolutionScope) ||
+        (annotations[
+          `resiliency.idp/dns-scope.${matchedEnv}`
+        ] as DnsResolutionScope) ||
+        (endpointExposureRaw
+          ? endpointExposure === 'strictly-private'
+            ? 'private-split-horizon'
+            : 'public-authoritative'
+          : defaultDnsScope);
       parsed.push({
         entityRef,
         serviceName,
@@ -681,8 +757,8 @@ export function parseEntityEnvironmentEndpoints(
         simulateWeakCrypto: weakCryptoFlag && !isRemediated,
         simulateDaysRemaining: Number.isNaN(simDays as number) ? null : simDays,
         haproxyHost,
-        exposureScope: defaultExposure,
-        dnsScope: defaultDnsScope,
+        exposureScope: endpointExposure,
+        dnsScope: endpointDnsScope,
         ingressType: defaultIngressType,
       });
     });
@@ -1056,7 +1132,10 @@ function recordEndpointCertificate(
     autoRenewThresholdDays: target.autoRenewThresholdDays,
     gcpProject: target.gcpProject,
     gcpTargetProxy: target.gcpTargetProxy,
-    exposureScope: target.exposureScope ?? 'internal-only',
+    exposureScope: normalizeExposureScope(
+      target.exposureScope,
+      'strictly-private',
+    ),
     dnsScope: target.dnsScope ?? 'private-split-horizon',
     ingressType: target.ingressType ?? 'Private Cloud Load Balancer (VPC-Internal)',
     lastProbedAt: new Date().toISOString(),
@@ -1152,8 +1231,22 @@ export function buildEntityRollup(
     endpoints: records,
     lastScannedAt: new Date().toISOString(),
     exposureCounts: {
-      internetFacing: records.filter(r => r.exposureScope === 'internet-facing').length,
-      internalOnly: records.filter(r => r.exposureScope === 'internal-only').length,
+      unrestrictedPublic: records.filter(
+        r => normalizeExposureScope(r.exposureScope) === 'unrestricted-public',
+      ).length,
+      restrictedPublic: records.filter(
+        r => normalizeExposureScope(r.exposureScope) === 'restricted-public',
+      ).length,
+      strictlyPrivate: records.filter(
+        r => normalizeExposureScope(r.exposureScope) === 'strictly-private',
+      ).length,
+      internetFacing: records.filter(r => {
+        const s = normalizeExposureScope(r.exposureScope);
+        return s === 'unrestricted-public' || s === 'restricted-public';
+      }).length,
+      internalOnly: records.filter(
+        r => normalizeExposureScope(r.exposureScope) === 'strictly-private',
+      ).length,
     },
     softwareStack: softwareStack ?? [],
   };

@@ -74,7 +74,99 @@ export type SslRenewalMode =
   | 'self-renewing-monitored'
   | 'workflow-auto-renew';
 
-export type IngressExposureScope = 'internet-facing' | 'internal-only';
+export type IngressExposureScope =
+  | 'unrestricted-public'
+  | 'restricted-public'
+  | 'strictly-private'
+  | 'internet-facing'
+  | 'internal-only';
+
+export function normalizeExposureScope(
+  raw?: string | null,
+  fallback:
+    | 'unrestricted-public'
+    | 'restricted-public'
+    | 'strictly-private' = 'strictly-private',
+): 'unrestricted-public' | 'restricted-public' | 'strictly-private' {
+  const v = (raw || '').trim().toLowerCase();
+  if (
+    v === 'unrestricted-public' ||
+    v === 'internet-facing' ||
+    v === 'customer-facing' ||
+    v === 'open-edge'
+  ) {
+    return 'unrestricted-public';
+  }
+  if (
+    v === 'restricted-public' ||
+    v === 'partner-facing' ||
+    v === 'authenticated-edge' ||
+    v === 'acl-gated'
+  ) {
+    return 'restricted-public';
+  }
+  if (
+    v === 'strictly-private' ||
+    v === 'internal-only' ||
+    v === 'private-core'
+  ) {
+    return 'strictly-private';
+  }
+  return fallback;
+}
+
+export function getExposureTierMeta(scope?: string | null) {
+  const normalized = normalizeExposureScope(scope);
+  if (normalized === 'unrestricted-public') {
+    return {
+      key: 'unrestricted-public' as const,
+      tier: 'Tier 1: Unrestricted Public',
+      shortBadge: '🌐 Unrestricted Public',
+      analogy: '🏪 Retail Storefront (Open Doors)',
+      businessTerm: 'Customer-Facing / Open Edge',
+      whoCanReach: 'Anyone on the internet.',
+      protection: 'WAF, DDoS mitigation, Bot protection, App-level Auth.',
+      auditGoal:
+        'Ensure edge hardening (WAF/Rate limits) is active and no internal data leaks here.',
+      bg: '#e1f5fe',
+      fg: '#01579b',
+      border: '#0288d1',
+    };
+  }
+  if (normalized === 'restricted-public') {
+    return {
+      key: 'restricted-public' as const,
+      tier: 'Tier 2: Restricted Public (ACL-Gated)',
+      shortBadge: '🛡️ Restricted Public (ACL-Gated)',
+      analogy: '🏢 Office Lobby (Badge Scanner at Door)',
+      businessTerm: 'Partner / B2B-Facing • Authenticated Edge',
+      whoCanReach:
+        'Anyone on the internet can see it; only approved IPs/identities pass the gate.',
+      protection: 'Perimeter ACLs, IP Allowlists, Identity-Aware Proxy (IAP).',
+      auditGoal:
+        'The Audit Danger Zone: Verify why this is not Tier 3. Ensure ACLs are not overly permissive.',
+      bg: '#fff3e0',
+      fg: '#e65100',
+      border: '#f57c00',
+    };
+  }
+  return {
+    key: 'strictly-private' as const,
+    tier: 'Tier 3: Strictly Private (Internal)',
+    shortBadge: '🔒 Strictly Private',
+    analogy: '🏦 Underground Vault (Hidden Inside Compound)',
+    businessTerm: 'Employee / System-Only • Private Core',
+    whoCanReach:
+      'Nobody from the outside; requires active VPN or internal network connection.',
+    protection: 'Private DNS, VPC isolation, Zero Trust Network Access (ZTNA).',
+    auditGoal:
+      'Confirm zero public DNS resolution or accidental public routing.',
+    bg: '#ede7f6',
+    fg: '#4a148c',
+    border: '#673ab3',
+  };
+}
+
 export type DnsResolutionScope =
   | 'public-authoritative'
   | 'private-split-horizon';
@@ -159,6 +251,9 @@ interface EntitySslTrackerRollup {
   environmentCounts: Record<SslEnvironmentTier, number>;
   endpoints: TrackedSslEndpointRecord[];
   exposureCounts?: {
+    unrestrictedPublic?: number;
+    restrictedPublic?: number;
+    strictlyPrivate?: number;
     internetFacing: number;
     internalOnly: number;
   };
@@ -282,14 +377,19 @@ function buildFallbackRollupFromEntity(entity: any): EntitySslTrackerRollup | nu
 
   const entityRef = stringifyEntityRef(entity);
   const serviceName = entity?.metadata?.name || 'service';
-  const exposureScope: IngressExposureScope =
-    (annotations['resiliency.idp/exposure-scope'] as IngressExposureScope) ||
-    (providerType === 'gcp-cloud-lb' ? 'internet-facing' : 'internal-only');
+  const exposureScope: IngressExposureScope = normalizeExposureScope(
+    annotations['resiliency.idp/exposure-scope'],
+    providerType === 'gcp-cloud-lb'
+      ? 'unrestricted-public'
+      : providerType === 'haproxy-edge'
+      ? 'restricted-public'
+      : 'strictly-private',
+  );
   const dnsScope: DnsResolutionScope =
     (annotations['resiliency.idp/dns-scope'] as DnsResolutionScope) ||
-    (exposureScope === 'internet-facing'
-      ? 'public-authoritative'
-      : 'private-split-horizon');
+    (exposureScope === 'strictly-private'
+      ? 'private-split-horizon'
+      : 'public-authoritative');
   const ingressType: string =
     annotations['resiliency.idp/ingress-type'] ||
     (providerType === 'gcp-cloud-lb'
@@ -368,6 +468,19 @@ function buildFallbackRollupFromEntity(entity: any): EntitySslTrackerRollup | nu
       const notAfter = new Date(Date.now() + days * 86400 * 1000).toISOString();
       const serialHex = `4A:8F:${env!.toUpperCase().slice(0, 2)}:0${idx + 1}:9C:2E:71:B4`;
 
+      const epExposureRaw =
+        annotations[`resiliency.idp/exposure-scope.${env}.${epKey}`] ||
+        annotations[`resiliency.idp/exposure-scope.${env}.${subKey}`] ||
+        annotations[`resiliency.idp/exposure-scope.${env}`];
+      const epExposure: IngressExposureScope = epExposureRaw
+        ? normalizeExposureScope(epExposureRaw, exposureScope)
+        : exposureScope;
+      const epDnsScope: DnsResolutionScope = epExposureRaw
+        ? epExposure === 'strictly-private'
+          ? 'private-split-horizon'
+          : 'public-authoritative'
+        : dnsScope;
+
       endpoints.push({
         endpointId: `${entityRef}:${env}:${epKey}`,
         entityRef,
@@ -378,8 +491,8 @@ function buildFallbackRollupFromEntity(entity: any): EntitySslTrackerRollup | nu
         sniHostname: host,
         providerType,
         renewalMode,
-        exposureScope,
-        dnsScope,
+        exposureScope: epExposure,
+        dnsScope: epDnsScope,
         ingressType,
         autoRenewThresholdDays: 15,
         gcpProject: annotations['resiliency.idp/gcp-project'] || null,
@@ -583,11 +696,21 @@ function buildFallbackRollupFromEntity(entity: any): EntitySslTrackerRollup | nu
     environmentCounts: envCounts,
     endpoints,
     exposureCounts: {
-      internetFacing: endpoints.filter(
-        e => e.exposureScope === 'internet-facing',
+      unrestrictedPublic: endpoints.filter(
+        e => normalizeExposureScope(e.exposureScope) === 'unrestricted-public',
       ).length,
+      restrictedPublic: endpoints.filter(
+        e => normalizeExposureScope(e.exposureScope) === 'restricted-public',
+      ).length,
+      strictlyPrivate: endpoints.filter(
+        e => normalizeExposureScope(e.exposureScope) === 'strictly-private',
+      ).length,
+      internetFacing: endpoints.filter(e => {
+        const s = normalizeExposureScope(e.exposureScope);
+        return s === 'unrestricted-public' || s === 'restricted-public';
+      }).length,
       internalOnly: endpoints.filter(
-        e => e.exposureScope === 'internal-only',
+        e => normalizeExposureScope(e.exposureScope) === 'strictly-private',
       ).length,
     },
     softwareStack,
@@ -665,8 +788,14 @@ export const EntityMultiEnvSslComplianceCard = () => {
     'ALL' | 'COMPLIANT' | 'WARNING' | 'NON_COMPLIANT'
   >('ALL');
   const [exposureFilter, setExposureFilter] = useState<
-    'ALL' | 'internet-facing' | 'internal-only'
+    | 'ALL'
+    | 'unrestricted-public'
+    | 'restricted-public'
+    | 'strictly-private'
+    | 'internet-facing'
+    | 'internal-only'
   >('ALL');
+  const [showAuditMatrix, setShowAuditMatrix] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isOfflineMode, setIsOfflineMode] = useState<boolean>(false);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
@@ -1028,7 +1157,8 @@ export const EntityMultiEnvSslComplianceCard = () => {
     }
     if (
       exposureFilter !== 'ALL' &&
-      e.exposureScope !== exposureFilter
+      normalizeExposureScope(e.exposureScope) !==
+        normalizeExposureScope(exposureFilter)
     ) {
       return false;
     }
@@ -1209,7 +1339,7 @@ export const EntityMultiEnvSslComplianceCard = () => {
           })}
         </div>
 
-        {/* Exposure Scope Filter */}
+        {/* 3-Tier Exposure Spectrum Filter & Executive Audit Matrix */}
         <div
           style={{
             display: 'flex',
@@ -1219,7 +1349,7 @@ export const EntityMultiEnvSslComplianceCard = () => {
           }}
         >
           <span style={{ fontWeight: 700, fontSize: '0.82rem' }}>
-            Exposure Scope:
+            3-Tier Exposure Spectrum:
           </span>
           <button
             type="button"
@@ -1238,47 +1368,184 @@ export const EntityMultiEnvSslComplianceCard = () => {
               fontSize: '0.78rem',
             }}
           >
-            ALL
+            ALL ({rollup.totalEndpoints})
           </button>
+          {(
+            [
+              'unrestricted-public',
+              'restricted-public',
+              'strictly-private',
+            ] as const
+          ).map(tierKey => {
+            const meta = getExposureTierMeta(tierKey);
+            const count =
+              tierKey === 'unrestricted-public'
+                ? rollup.exposureCounts?.unrestrictedPublic ??
+                  rollup.endpoints.filter(
+                    e =>
+                      normalizeExposureScope(e.exposureScope) ===
+                      'unrestricted-public',
+                  ).length
+                : tierKey === 'restricted-public'
+                ? rollup.exposureCounts?.restrictedPublic ??
+                  rollup.endpoints.filter(
+                    e =>
+                      normalizeExposureScope(e.exposureScope) ===
+                      'restricted-public',
+                  ).length
+                : rollup.exposureCounts?.strictlyPrivate ??
+                  rollup.endpoints.filter(
+                    e =>
+                      normalizeExposureScope(e.exposureScope) ===
+                      'strictly-private',
+                  ).length;
+            const active =
+              exposureFilter !== 'ALL' &&
+              normalizeExposureScope(exposureFilter) === tierKey;
+            return (
+              <button
+                key={tierKey}
+                type="button"
+                onClick={() =>
+                  setExposureFilter(active ? 'ALL' : tierKey)
+                }
+                style={{
+                  cursor: 'pointer',
+                  padding: '4px 10px',
+                  borderRadius: '14px',
+                  border: active
+                    ? `2px solid ${meta.border}`
+                    : '1px solid #ccc',
+                  backgroundColor: active ? meta.bg : '#fafafa',
+                  color: active ? meta.fg : '#333',
+                  fontWeight: active ? 700 : 500,
+                  fontSize: '0.78rem',
+                }}
+              >
+                {meta.shortBadge} ({count})
+              </button>
+            );
+          })}
           <button
             type="button"
-            onClick={() => setExposureFilter('internet-facing')}
+            onClick={() => setShowAuditMatrix(prev => !prev)}
             style={{
               cursor: 'pointer',
-              padding: '4px 10px',
-              borderRadius: '14px',
-              border:
-                exposureFilter === 'internet-facing'
-                  ? '2px solid #01579b'
-                  : '1px solid #ccc',
-              backgroundColor:
-                exposureFilter === 'internet-facing' ? '#e1f5fe' : '#fafafa',
-              fontWeight: exposureFilter === 'internet-facing' ? 700 : 500,
-              fontSize: '0.78rem',
+              marginLeft: 'auto',
+              padding: '3px 10px',
+              borderRadius: '12px',
+              border: '1px solid #90a4ae',
+              backgroundColor: showAuditMatrix ? '#eceff1' : '#fff',
+              color: '#37474f',
+              fontWeight: 600,
+              fontSize: '0.74rem',
             }}
           >
-            🌐 Internet-Facing ({rollup.exposureCounts?.internetFacing ?? 0})
-          </button>
-          <button
-            type="button"
-            onClick={() => setExposureFilter('internal-only')}
-            style={{
-              cursor: 'pointer',
-              padding: '4px 10px',
-              borderRadius: '14px',
-              border:
-                exposureFilter === 'internal-only'
-                  ? '2px solid #4a148c'
-                  : '1px solid #ccc',
-              backgroundColor:
-                exposureFilter === 'internal-only' ? '#ede7f6' : '#fafafa',
-              fontWeight: exposureFilter === 'internal-only' ? 700 : 500,
-              fontSize: '0.78rem',
-            }}
-          >
-            🔒 Internal-Only ({rollup.exposureCounts?.internalOnly ?? 0})
+            {showAuditMatrix
+              ? 'Hide 3-Tier Audit Matrix'
+              : 'Show 3-Tier Audit Matrix'}
           </button>
         </div>
+
+        {showAuditMatrix && (
+          <div
+            style={{
+              padding: '10px 12px',
+              borderRadius: '8px',
+              backgroundColor: '#fafafa',
+              border: '1px solid #e0e0e0',
+            }}
+          >
+            <div
+              style={{
+                fontSize: '0.76rem',
+                color: '#37474f',
+                marginBottom: '8px',
+                fontStyle: 'italic',
+                borderLeft: '3px solid #1976d2',
+                paddingLeft: '8px',
+              }}
+            >
+              &ldquo;Every domain we own belongs in one of three buckets:{' '}
+              <strong>Unrestricted Public</strong> for our customers,{
+                ' '}
+              <strong>Restricted Public</strong> for external partners, and{
+                ' '}
+              <strong>Strictly Private</strong> for our internal teams. The goal
+              of this audit is to catch internal tools that were accidentally
+              deployed into the middle bucket—sitting on the public internet
+              behind an ACL—and move them into the Strictly Private bucket where
+              they belong.&rdquo;
+            </div>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))',
+                gap: '8px',
+              }}
+            >
+              {(
+                [
+                  'unrestricted-public',
+                  'restricted-public',
+                  'strictly-private',
+                ] as const
+              ).map(tierKey => {
+                const meta = getExposureTierMeta(tierKey);
+                const count = rollup.endpoints.filter(
+                  e => normalizeExposureScope(e.exposureScope) === tierKey,
+                ).length;
+                const active =
+                  exposureFilter !== 'ALL' &&
+                  normalizeExposureScope(exposureFilter) === tierKey;
+                return (
+                  <div
+                    key={tierKey}
+                    onClick={() =>
+                      setExposureFilter(active ? 'ALL' : tierKey)
+                    }
+                    style={{
+                      cursor: 'pointer',
+                      padding: '8px 10px',
+                      borderRadius: '6px',
+                      backgroundColor: meta.bg,
+                      color: meta.fg,
+                      border: active
+                        ? `2px solid ${meta.border}`
+                        : `1px solid ${meta.border}`,
+                      fontSize: '0.72rem',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        fontWeight: 700,
+                        fontSize: '0.77rem',
+                        marginBottom: '3px',
+                      }}
+                    >
+                      <span>{meta.tier}</span>
+                      <span>{count} ep</span>
+                    </div>
+                    <div style={{ fontWeight: 600, marginBottom: '2px' }}>
+                      {meta.analogy} • {meta.businessTerm}
+                    </div>
+                    <div style={{ opacity: 0.92, marginBottom: '2px' }}>
+                      <strong>Reach:</strong> {meta.whoCanReach}
+                    </div>
+                    <div style={{ opacity: 0.92, marginBottom: '2px' }}>
+                      <strong>Protection:</strong> {meta.protection}
+                    </div>
+                    <div style={{ fontWeight: 600 }}>
+                      <strong>Audit Goal:</strong> {meta.auditGoal}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Compliance Status Filter Chips & Search Input */}
         <div
@@ -1410,37 +1677,40 @@ export const EntityMultiEnvSslComplianceCard = () => {
                         </code>
                       </div>
                       <div style={{ marginTop: '3px' }}>
-                        {item.exposureScope === 'internet-facing' ? (
-                          <span
-                            style={{
-                              display: 'inline-block',
-                              padding: '1px 6px',
-                              borderRadius: '8px',
-                              backgroundColor: '#e1f5fe',
-                              color: '#01579b',
-                              fontSize: '0.7rem',
-                              fontWeight: 700,
-                              marginTop: '2px',
-                            }}
-                          >
-                            🌐 Internet-Facing
-                          </span>
-                        ) : (
-                          <span
-                            style={{
-                              display: 'inline-block',
-                              padding: '1px 6px',
-                              borderRadius: '8px',
-                              backgroundColor: '#ede7f6',
-                              color: '#4a148c',
-                              fontSize: '0.7rem',
-                              fontWeight: 700,
-                              marginTop: '2px',
-                            }}
-                          >
-                            🔒 Internal-Only
-                          </span>
-                        )}
+                        {(() => {
+                          const expMeta = getExposureTierMeta(
+                            item.exposureScope,
+                          );
+                          return (
+                            <>
+                              <span
+                                style={{
+                                  display: 'inline-block',
+                                  padding: '1px 6px',
+                                  borderRadius: '8px',
+                                  backgroundColor: expMeta.bg,
+                                  color: expMeta.fg,
+                                  border: `1px solid ${expMeta.border}`,
+                                  fontSize: '0.7rem',
+                                  fontWeight: 700,
+                                  marginTop: '2px',
+                                }}
+                              >
+                                {expMeta.shortBadge}
+                              </span>
+                              <div
+                                style={{
+                                  fontSize: '0.67rem',
+                                  color: expMeta.fg,
+                                  fontWeight: 600,
+                                  marginTop: '2px',
+                                }}
+                              >
+                                {expMeta.analogy}
+                              </div>
+                            </>
+                          );
+                        })()}
                       </div>
                       {item.ingressType && (
                         <div

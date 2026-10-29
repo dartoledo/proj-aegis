@@ -46,10 +46,12 @@ describe('classifyEolStatus', () => {
 
 describe('evaluateProductCycles', () => {
   it('evaluates product tokens and returns correct eolStatus and cves', () => {
-    const results = evaluateProductCycles(['nodejs@18', 'openssl@1.1.1', 'react@18'], '2026-10-28');
-    const nodejs = results.find(r => r.product === 'nodejs' && r.cycle === '18');
-    expect(nodejs?.eolStatus).toBe('END_OF_LIFE');
-    expect(nodejs?.cves.map(c => c.cveId)).toContain('CVE-2026-56850');
+    const results = evaluateProductCycles(['nodejs@18', 'nodejs@20', 'openssl@1.1.1', 'react@18'], '2026-10-28');
+    const nodejs18 = results.find(r => r.product === 'nodejs' && r.cycle === '18');
+    const nodejs20 = results.find(r => r.product === 'nodejs' && r.cycle === '20');
+    expect(nodejs18?.eolStatus).toBe('END_OF_LIFE');
+    expect(nodejs18?.cves.map(c => c.cveId)).toContain('CVE-2026-111497');
+    expect(nodejs20?.cves.map(c => c.cveId)).toContain('CVE-2026-111497');
   });
 });
 

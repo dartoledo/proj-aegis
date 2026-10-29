@@ -436,19 +436,37 @@ describe('sslEndpointTrackerService', () => {
         name: 'aegis-ui',
         annotations: {
           'resiliency.idp/ssl-provider': 'gcp-cloud-lb',
-          'resiliency.idp/exposure-scope': 'internet-facing',
+          'resiliency.idp/exposure-scope': 'unrestricted-public',
           'resiliency.idp/endpoints.prod':
             'https://prod.ui.aegis.cloud.goog/healthz',
+          'resiliency.idp/endpoints.stg.canary':
+            'https://stg-canary.ui.aegis.cloud.goog/healthz',
+          'resiliency.idp/exposure-scope.stg.canary': 'restricted-public',
+          'resiliency.idp/endpoints.dev':
+            'https://dev.ui.aegis.cloud.goog/healthz',
+          'resiliency.idp/exposure-scope.dev': 'strictly-private',
         },
       },
     };
 
     const publicParsed = parseEntityEnvironmentEndpoints(publicEntity as any);
-    expect(publicParsed[0].exposureScope).toBe('internet-facing');
-    expect(publicParsed[0].dnsScope).toBe('public-authoritative');
+    expect(publicParsed).toHaveLength(3);
+    expect(
+      publicParsed.find(p => p.environment === 'prod')?.exposureScope,
+    ).toBe('unrestricted-public');
+    expect(
+      publicParsed.find(p => p.endpointKey === 'canary')?.exposureScope,
+    ).toBe('restricted-public');
+    expect(publicParsed.find(p => p.environment === 'dev')?.exposureScope).toBe(
+      'strictly-private',
+    );
 
     const rollup = await scanEntityEndpoints(publicEntity as any);
-    expect(rollup?.exposureCounts?.internetFacing).toBe(1);
+    expect(rollup?.exposureCounts?.unrestrictedPublic).toBe(1);
+    expect(rollup?.exposureCounts?.restrictedPublic).toBe(1);
+    expect(rollup?.exposureCounts?.strictlyPrivate).toBe(1);
+    expect(rollup?.exposureCounts?.internetFacing).toBe(2);
+    expect(rollup?.exposureCounts?.internalOnly).toBe(1);
     expect(Array.isArray(rollup?.softwareStack)).toBe(true);
     expect(rollup!.softwareStack!.length).toBeGreaterThanOrEqual(1);
     const sbomItem = rollup!.softwareStack![0];
@@ -462,7 +480,7 @@ describe('sslEndpointTrackerService', () => {
       metadata: {
         name: 'aegis-backend',
         annotations: {
-          'resiliency.idp/exposure-scope': 'internal-only',
+          'resiliency.idp/exposure-scope': 'strictly-private',
           'resiliency.idp/endpoints.dev':
             'https://dev.backend.internal:8443/items',
         },
@@ -470,7 +488,7 @@ describe('sslEndpointTrackerService', () => {
     };
 
     const privateParsed = parseEntityEnvironmentEndpoints(privateEntity as any);
-    expect(privateParsed[0].exposureScope).toBe('internal-only');
+    expect(privateParsed[0].exposureScope).toBe('strictly-private');
     expect(privateParsed[0].dnsScope).toBe('private-split-horizon');
 
     const softwareStack = parseEntitySoftwareStack(privateEntity as any);

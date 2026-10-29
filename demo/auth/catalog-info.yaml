@@ -11,15 +11,15 @@ metadata:
     - env:prod
     - ssl-monitored
     - private-cloud-lb
-    - ingress:internal-only
+    - ingress:strictly-private
     - dns:private-split-horizon
   annotations:
     backstage.io/kubernetes-label-selector: 'app=auth'
     backstage.io/techdocs-ref: dir:.
-    resiliency.idp/exposure-scope: 'internal-only'
+    resiliency.idp/exposure-scope: 'strictly-private'
     resiliency.idp/dns-scope: 'private-split-horizon'
     resiliency.idp/ingress-type: 'Zero-Trust Service Mesh & Ingress Controller'
-    resiliency.idp/software-stack: '[{"name":"Node.js","version":"22.14.0","category":"runtime","description":"LTS JavaScript V8 server runtime"},{"name":"Jose / JWT","version":"5.9.6","category":"framework","description":"Zero-Trust cryptographic token signing & verification"},{"name":"Express","version":"4.21.2","category":"framework","description":"Identity broker REST API gateway"},{"name":"OpenSSL","version":"3.0.13","category":"crypto-library","description":"FIPS-ready cryptographic provider"}]'
+    resiliency.idp/software-stack: '[{"name":"Node.js","version":"20.11.0","category":"runtime","description":"Node.js 20 LTS runtime — CRITICAL CVE-2026-111497 (V8/HTTP2 RCE) & CVE-2024-27980","cveStatus":"CRITICAL"},{"name":"Jose / JWT","version":"5.9.6","category":"framework","description":"Zero-Trust cryptographic token signing & verification","cveStatus":"SECURE"},{"name":"Express","version":"4.21.2","category":"framework","description":"Identity broker REST API gateway","cveStatus":"SECURE"},{"name":"OpenSSL","version":"3.0.13","category":"crypto-library","description":"FIPS-ready cryptographic provider (High CVE-2024-6119)","cveStatus":"WARNING"}]'
     goharbor.io/repository-slug: 'aegis-ciam/aegis-auth'
     goharbor.io/host: 'harbor.aegis.internal:8880'
     goharbor.io/image-tag: 'v3.1.0'
@@ -41,6 +41,7 @@ metadata:
     resiliency.idp/endpoints.preprod: 'https://preprod.auth.internal:8443/healthz'
     resiliency.idp/endpoints.prod.us-east: 'https://prod.auth.internal:8443/healthz'
     resiliency.idp/endpoints.prod.dr-west: 'https://prod-dr.auth.internal:8443/healthz'
+    resiliency.idp/exposure-scope.stg.partner-sso: 'restricted-public'
   links:
     - url: http://localhost:3000/create/templates/default/k8s-day2-operations?formData=%7B%22componentEntity%22%3A%22component%3Adefault%2Faegis-auth%22%2C%22operationType%22%3A%22scale%22%7D
       title: Scale K8s Replicas (Day-2)

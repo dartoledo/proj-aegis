@@ -11,15 +11,16 @@ metadata:
     - env:prod
     - ssl-monitored
     - gcp-cloud-lb
-    - ingress:internet-facing
+    - ingress:unrestricted-public
+    - ingress:restricted-public
     - dns:public-authoritative
   annotations:
     backstage.io/kubernetes-label-selector: 'app=ui'
     backstage.io/techdocs-ref: dir:.
-    resiliency.idp/exposure-scope: 'internet-facing'
+    resiliency.idp/exposure-scope: 'unrestricted-public'
     resiliency.idp/dns-scope: 'public-authoritative'
     resiliency.idp/ingress-type: 'Cloud External Application Load Balancer (GCP TargetHttpsProxy)'
-    resiliency.idp/software-stack: '[{"name":"React","version":"18.3.1","category":"framework","description":"Frontend UI component engine"},{"name":"TypeScript","version":"5.8.2","category":"runtime","description":"Type-safe compiler & type system"},{"name":"Material-UI","version":"5.16.7","category":"framework","description":"Google Material Design UI system"},{"name":"Backstage Core","version":"1.34.0","category":"framework","description":"Developer Portal Core Framework"},{"name":"Envoy / GCP Proxy","version":"1.30.1","category":"web-server","description":"Cloud External HTTPS Proxy & Ingress"}]'
+    resiliency.idp/software-stack: '[{"name":"Node.js","version":"22.15.0","category":"runtime","description":"Patched Node.js 22 LTS (Jod) — remediated against CVE-2026-111497","cveStatus":"SECURE"},{"name":"React","version":"18.3.1","category":"framework","description":"Frontend UI component engine (Medium CVE-2026-31042 in SSR hydration)","cveStatus":"WARNING"},{"name":"TypeScript","version":"5.8.2","category":"runtime","description":"Type-safe compiler & type system","cveStatus":"SECURE"},{"name":"Backstage Core","version":"1.34.0","category":"framework","description":"Developer Portal Core Framework","cveStatus":"SECURE"},{"name":"Envoy / GCP Proxy","version":"1.30.1","category":"web-server","description":"Cloud External HTTPS Proxy & Ingress (High CVE-2024-45806)","cveStatus":"WARNING"}]'
     goharbor.io/repository-slug: 'aegis-ciam/aegis-ui'
     goharbor.io/host: 'harbor.aegis.internal:8880'
     goharbor.io/image-tag: 'v2.4.0'
@@ -41,6 +42,9 @@ metadata:
     resiliency.idp/endpoints.stress-test: 'https://stress.ui.aegis.cloud.goog/healthz'
     resiliency.idp/endpoints.preprod: 'https://preprod.ui.aegis.cloud.goog/healthz'
     resiliency.idp/endpoints.prod: 'https://prod.ui.aegis.cloud.goog/healthz'
+    resiliency.idp/exposure-scope.dev: 'strictly-private'
+    resiliency.idp/exposure-scope.stg.canary: 'restricted-public'
+    resiliency.idp/exposure-scope.stress-test: 'restricted-public'
   links:
     - url: http://localhost:3000/create/templates/default/renew-gcp-lb-tls-cert?formData=%7B%22targetEntity%22%3A%22component%3Adefault%2Faegis-ui%22%7D
       title: Auto-Renew GCP Cloud LB SSL Cert
