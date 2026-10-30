@@ -192,7 +192,7 @@ catalog:
   locations:
     # Local example data, file locations are relative to the backend process, typically `packages/backend`
     - type: file
-      target: /home/dartoledo/proj-aegis/demo/catalog-info.yaml
+      target: ../../../demo/catalog-info.yaml
 
     - type: file
       target: ../../examples/entities.yaml

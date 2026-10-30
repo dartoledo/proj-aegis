@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
+import path from 'node:path';
 
 export interface K8sPodSummary {
   name: string;
@@ -98,8 +99,8 @@ export interface K8sDay2OperationDiff {
   markdownDiff: string;
 }
 
-export const DEFAULT_MANIFEST_PATH =
-  '/home/dartoledo/proj-aegis/demo/k8s/manifest.yaml';
+const REPO_ROOT = path.resolve(__dirname, '../../../../..');
+export const DEFAULT_MANIFEST_PATH = path.join(REPO_ROOT, 'demo/k8s/manifest.yaml');
 
 export const WORKLOAD_CONFIGS: Record<string, WorkloadConfig> = {
   backend: {
@@ -111,7 +112,7 @@ export const WORKLOAD_CONFIGS: Record<string, WorkloadConfig> = {
     maxReplicas: 10,
     isStateful: false,
     healthUrl: 'http://127.0.0.1:30002/items',
-    catalogInfoPath: '/home/dartoledo/proj-aegis/demo/backend/catalog-info.yaml',
+    catalogInfoPath: path.join(REPO_ROOT, 'demo/backend/catalog-info.yaml'),
   },
   auth: {
     deploymentName: 'auth',
@@ -122,7 +123,7 @@ export const WORKLOAD_CONFIGS: Record<string, WorkloadConfig> = {
     maxReplicas: 10,
     isStateful: false,
     healthUrl: 'http://127.0.0.1:30001',
-    catalogInfoPath: '/home/dartoledo/proj-aegis/demo/auth/catalog-info.yaml',
+    catalogInfoPath: path.join(REPO_ROOT, 'demo/auth/catalog-info.yaml'),
   },
   ui: {
     deploymentName: 'ui',
@@ -133,7 +134,7 @@ export const WORKLOAD_CONFIGS: Record<string, WorkloadConfig> = {
     maxReplicas: 10,
     isStateful: false,
     healthUrl: 'http://127.0.0.1:30080',
-    catalogInfoPath: '/home/dartoledo/proj-aegis/demo/ui/catalog-info.yaml',
+    catalogInfoPath: path.join(REPO_ROOT, 'demo/ui/catalog-info.yaml'),
   },
   db: {
     deploymentName: 'db',
@@ -143,7 +144,7 @@ export const WORKLOAD_CONFIGS: Record<string, WorkloadConfig> = {
     minReplicas: 1,
     maxReplicas: 1,
     isStateful: true,
-    catalogInfoPath: '/home/dartoledo/proj-aegis/demo/db-init/catalog-info.yaml',
+    catalogInfoPath: path.join(REPO_ROOT, 'demo/db-init/catalog-info.yaml'),
   },
 };
 

@@ -58,16 +58,23 @@ export interface DeployCertInput {
   catalogInfoPath?: string;
 }
 
+const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 export const DEFAULT_HAPROXY_HOST =
   process.env.AEGIS_HAPROXY_HOST || '127.0.0.1:8443';
-export const DEFAULT_HOST_PEM_PATH =
-  '/home/dartoledo/proj-aegis/demo/haproxy/certs/hello-world.pem';
-export const DEFAULT_HOST_SOCKET_PATH =
-  '/home/dartoledo/proj-aegis/demo/haproxy/run/haproxy.sock';
+export const DEFAULT_HOST_PEM_PATH = path.join(
+  REPO_ROOT,
+  'demo/haproxy/certs/hello-world.pem',
+);
+export const DEFAULT_HOST_SOCKET_PATH = path.join(
+  REPO_ROOT,
+  'demo/haproxy/run/haproxy.sock',
+);
 export const DEFAULT_CONTAINER_PEM_PATH =
   '/etc/haproxy/certs/hello-world.pem';
-export const DEFAULT_CATALOG_INFO_PATH =
-  '/home/dartoledo/proj-aegis/demo/haproxy/catalog-info.yaml';
+export const DEFAULT_CATALOG_INFO_PATH = path.join(
+  REPO_ROOT,
+  'demo/haproxy/catalog-info.yaml',
+);
 
 let latestProbeResult: TlsProbeResult = {
   serialNumber: '00:00:00:00',

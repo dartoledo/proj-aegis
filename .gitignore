@@ -13,3 +13,6 @@ demo/haproxy/run/
 .ssl_tracker.db
 .ssl_tracker_state.json
 .coverage
+.pytest_cache/
+__pycache__/
+*.pyc
