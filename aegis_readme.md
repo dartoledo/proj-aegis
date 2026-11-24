@@ -168,6 +168,36 @@ Project Aegis extends edge TLS visibility into a full fleet-wide **Multi-Environ
    - **Scaffolder Template (`renew-gcp-lb-tls-cert`):** 4-step workflow (`resiliency:gcp-lb:authorize-dns`, `resiliency:gcp-lb:quality-gate-approval`, `resiliency:gcp-lb:renew-and-bind`, `resiliency:gcp-lb:verify-compliance`) with dynamic catalog endpoint resolution, plus `resiliency:private-lb:remediate-crypto`.
    - **REST & Observability Routes:** `GET /status`, `GET /fleet`, `GET /history`, `POST /scan`, `POST /gcp-preview-diff`, `POST /quality-gate/decide`, `POST /gcp-auto-renew`, `POST /remediate-crypto`, and Prometheus `GET /metrics` (`aegis_ssl_endpoint_expiry_days`, `aegis_ssl_endpoint_compliant`, `aegis_ssl_endpoint_key_bits`).
 
+### Canonical 33-Category Component Taxonomy & 2-Team Ownership Split (`SRE Team` vs. `App Team`)
+
+The **Autonomous Living CMDB (`living-cmdb`)** organizes all configuration items into two top-level domains (**I. Infrastructure** across 7 architectural layers & 20 component types, and **II. Software** across 13 categories), automatically assigning stewardship between **SRE Team (`sre-team`)** and **App Team (`app-team`)**:
+
+- **I. Infrastructure (7 Layers / 20 Component Types — Owned by `SRE Team`):**
+  1. **Edge & External Security Layer:** 🌐 Domain / Endpoint, 🛡️ WAF / Edge Protection, 🚀 CDN (Content Delivery Network)
+  2. **Ingress & Traffic Routing Layer:** 🔀 Load Balancer, 🚪 Ingress Controller, 🕸️ Service Mesh
+  3. **Cloud Governance & Logical Boundaries:** ☁️ GCP Project / Cloud Account, 🔒 IAM & Secrets Management, 🛡️ Namespace
+  4. **Orchestration & Compute Units:** ☸️ Kubernetes (K8s) Cluster, 📜 Kubernetes (K8s) Deployment, 🌱 Pod, 🐳 Container
+  5. **Dedicated Hosts & Traditional Compute:** 🖥️ Virtual Machine (VM) Server, 🧱 Baremetal Server, ⏱️ Batch Server / Event Workers
+  6. **Data, Cache & State Layer:** 🗄️ Database (Infra Instance), ⚡ Distributed Cache, 📦 Object Storage
+  7. **Observability & Telemetry Platform:** 📊 Metrics & Logging Engines
+- **II. Software (13 Categories — Split between `SRE Team` & `App Team`):**
+  - **SRE Team (`sre-team`):** 💻 Operating System (OS), 🐳 Containerization
+  - **App Team (`app-team`):** 🚀 Platform & Runtime Environment, 📦 Library & Framework, 🛡️ Security & Identity Software, 🔄 Middleware & Integration Software, 🗺️ Data Access & ORM, ⚙️ Configuration & Feature Flag Software, 🛠️ Application Core (Internal Business Logic), 📊 Observability, 🌐 External API, 🧪 Testing, 🛠️ Development Tools & Source Control (SCM)
+
+### Infrahub Attack-Path Graph & Tech-Insights Thin Scorecard Projector (`infrahub-attack-graph`)
+
+Aegis uses **Infrahub** as the Graph & AI Brain and Backstage **Tech-Insights** as a Thin Scorecard Projector:
+- **Explicit Reachability & N-Hop Attack-Path Graph:** Connects `EXPOSED_HTTPS_DOMAIN` → `SSL_TLS_CERTIFICATE` → `COMPUTE_HOST_OR_POD` → `EOL_RUNTIME_OR_OS` → `SBOM_PACKAGE` → `CVE_VULNERABILITY` → `LATERAL_SERVICE_OR_DATA_STORE` via explicit directed edges (`EXPOSES_INGRESS`, `TERMINATES_TLS_WITH`, `EXECUTES_ON_RUNTIME`, `AFFECTED_BY_CVE`, `REACHABLE_HOT_PATH_TO`, `LATERAL_MOVEMENT_TO_DATA`).
+- **Lightweight Infrahub GraphQL Fact Retriever:** Queries Infrahub's GraphQL API for 6 pre-computed summary metrics per service (`exposed_domain_count`, `non_compliant_ssl_count`, `eol_package_count`, `reachable_kev_cve_count`, `reachable_lateral_data_paths_count`, `attack_path_risk_score`) and evaluates pass/fail Tech-Insights Scorecards with deep-links to Infrahub and `infrahub-mcp`.
+
+### Software Version Normalizer & 100% PostgreSQL Persistence (`softwareVersionNormalizerService` & `aegisPostgresStore`)
+
+- **Multi-Source EOL & CVE Version Crosswalk:** Decomposes raw software versions (SemVer, Debian epochs `1:`, OpenSSL letter patches `1.1.1w-r1`, Alpine/Debian revisions) into `purl`, `cpe23Uri`, `eolProductSlug`, `eolCycleKey` (`MAJOR`, `MAJOR_MINOR`, `MAJOR_MINOR_PATCH`), `eolApiUrl`, `vendorLifecycleStream`, `osvEcosystem`, `osvPackageName`, `nvdCpeMatchString`, `ghsaEcosystem`, `distroAdvisoryNamespace`, and a 7-element lexicographical sort array `semverSortTuple` (`INT[7]`).
+- **100% PostgreSQL Database Architecture:**
+  - **Backstage Core & Custom Plugins (`portal/app-config.yaml` & `aegisPostgresStore.ts`):** Configured on PostgreSQL (`client: pg`) with automated Knex table initialization and seeding for `team_owners`, `cmdb_services`, `cmdb_component_nodes`, `software_version_crosswalk`, `public_eol_cycles`, and `public_cve_ranges`.
+  - **Python SSL Tracker (`services/ssl_tracker`):** Supports `AEGIS_SSL_TRACKER_DB_URL` (`postgresql://...`) with SQLAlchemy `pool_pre_ping=True`, managing `team_owners`, `tracked_endpoints`, and `certificate_inventory`.
+  - **Canonical DDL (`demo/db-init/init.sql`):** Unified PostgreSQL schema and seed script for all 9 tables.
+
 ### Demonstrating the Quality Gates (Shift-Left)
 
 Aegis enforces code quality and security checks natively. You can demo these capabilities directly on the backend service:

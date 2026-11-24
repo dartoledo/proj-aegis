@@ -10,7 +10,7 @@ from services.ssl_tracker.database import (
     make_session_factory,
     upsert_certificate_observation,
 )
-from services.ssl_tracker.models import CertificateInventoryModel, EndpointTargetInput
+from services.ssl_tracker.models import CertificateInventoryModel, EndpointTargetInput, TeamOwnerModel
 from services.ssl_tracker.scanner import ProviderAdapterRegistry
 
 
@@ -116,3 +116,29 @@ def test_registry_rejects_unknown_provider() -> None:
     registry = ProviderAdapterRegistry()
     with pytest.raises(ValueError, match="Unsupported SSL provider"):
         registry.get("unknown-cloud-lb")
+
+
+def test_team_owners_seeded_and_associated_with_endpoint(tmp_path: Path) -> None:
+    db_file = tmp_path / "team_owners.db"
+    engine = create_db_engine(str(db_file))
+    session_factory = make_session_factory(engine)
+    registry = ProviderAdapterRegistry()
+
+    target = EndpointTargetInput(
+        entity_ref="component:default/aegis-auth",
+        service_name="aegis-auth",
+        environment="stg",
+        endpoint_key="primary",
+        endpoint_url="https://stg.auth.internal:8443/healthz",
+        provider_type="private-cloud-lb",
+        renewal_mode="self-renewing-monitored",
+    )
+
+    with session_factory() as session:
+        adapter = registry.get(target.provider_type)
+        cert_info = adapter.inspect_endpoint(target)
+        rec = upsert_certificate_observation(session, target, cert_info)
+
+        assert session.get(TeamOwnerModel, "app-team").team_name == "App Team"
+        assert session.get(TeamOwnerModel, "sre-team").team_name == "SRE Team"
+        assert rec["owner_team_id"] == "sre-team"

@@ -12,7 +12,7 @@ echo ""
 # 1. Secrets detection
 echo "=== 1. Checking for hardcoded secrets (Gitleaks) ==="
 if command -v gitleaks >/dev/null 2>&1; then
-    gitleaks dir . --redact || true
+    gitleaks dir . --redact
 else
     echo "⚠️  gitleaks not found in PATH"
 fi
@@ -21,7 +21,7 @@ echo ""
 # 2. SAST code logic scan
 echo "=== 2. Scanning source code logic & AST (Semgrep Offline) ==="
 if command -v semgrep >/dev/null 2>&1; then
-    semgrep scan --config="$SCRIPT_DIR/.semgrep/aegis-offline-rules.yaml" --metrics=off --quiet --exclude='node_modules' --exclude='.git' --exclude='.venv' --exclude='dist' --exclude='coverage' . || true
+    semgrep scan --config="$SCRIPT_DIR/.semgrep/aegis-offline-rules.yaml" --metrics=off --quiet --exclude='node_modules' --exclude='.git' --exclude='.venv' --exclude='dist' --exclude='coverage' .
 else
     echo "⚠️  semgrep not found in PATH"
 fi

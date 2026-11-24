@@ -84,7 +84,7 @@ function createBuildPemTemplateAction(actionId: string) {
         `Validated X.509 certificate serial=${result.serialNumber}, expires=${result.expiryDate} (${result.daysRemaining} days remaining)`,
       );
 
-      ctx.output('pemBundle', result.pemBundle);
+      ctx.output('pemBundle', result.pemBundle.replace(/-----BEGIN (?:RSA |EC )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC )?PRIVATE KEY-----/g, '[REDACTED_PRIVATE_KEY]'));
       ctx.output('serialNumber', result.serialNumber);
       ctx.output('expiryDate', result.expiryDate);
       ctx.output('daysRemaining', result.daysRemaining);
@@ -258,7 +258,7 @@ function createCatalogRefreshTemplateAction(
   auth: typeof coreServices.auth.T,
 ) {
   return createTemplateAction({
-    id: 'catalog:refresh',
+    id: 'aegis:catalog:refresh',
     description:
       'Refreshes a Backstage Catalog entity and syncs its live TLS certificate annotations.',
     schema: {

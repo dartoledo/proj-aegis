@@ -58,7 +58,7 @@ def create_app(env: Mapping[str, str] | None = None) -> FastAPI:
             )
         candidate = authorization[len("Bearer ") :].strip()
         if not config.api_token.matches(candidate):
-            logger.warning("Unauthorized API request rejected (token=%s)", candidate)
+            logger.warning("Unauthorized API request rejected (token=***)")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid API token.",
@@ -259,11 +259,15 @@ def create_app(env: Mapping[str, str] | None = None) -> FastAPI:
             cert = db.get(CertificateInventoryModel, (ep.id, ep.active_serial_number))
             if not cert:
                 continue
+
+            def _esc(val: object) -> str:
+                return str(val).replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
             labels = (
-                f'entity="{ep.entity_ref}",service="{ep.service_name}",env="{ep.environment}",'
-                f'endpoint_key="{ep.endpoint_key}",provider="{ep.provider_type}",'
-                f'serial="{cert.serial_number_hex}",subject_cn="{cert.subject_cn}",'
-                f'issuer_cn="{cert.issuer_cn}",sig_alg="{cert.signature_algorithm}"'
+                f'entity="{_esc(ep.entity_ref)}",service="{_esc(ep.service_name)}",env="{_esc(ep.environment)}",'
+                f'endpoint_key="{_esc(ep.endpoint_key)}",provider="{_esc(ep.provider_type)}",'
+                f'serial="{_esc(cert.serial_number_hex)}",subject_cn="{_esc(cert.subject_cn)}",'
+                f'issuer_cn="{_esc(cert.issuer_cn)}",sig_alg="{_esc(cert.signature_algorithm)}"'
             )
             compliant_val = 1 if cert.compliance_status == "COMPLIANT" else 0
             lines.append(f"aegis_ssl_endpoint_expiry_days{{{labels}}} {cert.days_remaining}")

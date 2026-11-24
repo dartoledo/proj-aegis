@@ -11,6 +11,8 @@ import { harborEolModule } from './modules/harborEol';
 import { gcpPostureModule } from './modules/gcpPosture';
 import { livingCmdbModule } from './modules/livingCmdb';
 import { cveIntelModule } from './modules/cveIntel';
+import { infrahubAttackGraphModule } from './modules/infrahubAttackGraph';
+import { unifiedInventoryPlugin } from './modules/unifiedInventory';
 
 import notificationsPlugin from '@backstage/plugin-notifications/alpha';
 
@@ -28,6 +30,8 @@ export default createApp({
     gcpPostureModule,
     livingCmdbModule,
     cveIntelModule,
+    infrahubAttackGraphModule,
+    unifiedInventoryPlugin,
     notificationsPlugin,
   ],
 });

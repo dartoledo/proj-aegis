@@ -8,4 +8,28 @@ spec:
   profile:
     displayName: Team Aegis
     email: team-aegis@example.com
-  children: []
+  children: [app-team, sre-team]
+---
+apiVersion: backstage.io/v1alpha1
+kind: Group
+metadata:
+  name: app-team
+  description: The application team for Project Aegis
+spec:
+  type: team
+  profile:
+    displayName: App Team
+    email: app-team@aegis.internal
+  parent: team-aegis
+---
+apiVersion: backstage.io/v1alpha1
+kind: Group
+metadata:
+  name: sre-team
+  description: The SRE team for Project Aegis
+spec:
+  type: team
+  profile:
+    displayName: SRE Team
+    email: sre-team@aegis.internal
+  parent: team-aegis

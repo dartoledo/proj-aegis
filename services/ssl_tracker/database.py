@@ -16,22 +16,70 @@ from services.ssl_tracker.models import (
     Base,
     CertificateInventoryModel,
     EndpointTargetInput,
+    TeamOwnerModel,
     TrackedEndpointModel,
     serialize_endpoint_and_cert,
 )
 
 
-def create_db_engine(db_path: str) -> Engine:
-    """Create a SQLAlchemy engine for the configured SQLite path."""
-    if db_path == ":memory:":
-        url = "sqlite:///:memory:"
+def resolve_sqlalchemy_url(db_path: str) -> str:
+    """Resolve a database path or URL string to a SQLAlchemy-compatible URL."""
+    if db_path.startswith("postgres://"):
+        return "postgresql://" + db_path[len("postgres://"):]
+    elif db_path.startswith("postgresql://") or db_path.startswith("postgresql+") or db_path.startswith("sqlite://"):
+        return db_path
+    elif db_path == ":memory:":
+        return "sqlite:///:memory:"
     else:
         path_obj = Path(db_path)
         path_obj.parent.mkdir(parents=True, exist_ok=True)
-        url = f"sqlite:///{path_obj}"
-    engine = create_engine(url, connect_args={"check_same_thread": False})
+        return f"sqlite:///{path_obj}"
+
+
+def create_db_engine(db_path: str) -> Engine:
+    """Create a SQLAlchemy engine for the configured database path or URL."""
+    url = resolve_sqlalchemy_url(db_path)
+    if url.startswith("postgresql"):
+        engine = create_engine(url, pool_pre_ping=True)
+    else:
+        engine = create_engine(url, connect_args={"check_same_thread": False})
     Base.metadata.create_all(engine)
+    seed_default_team_owners(engine)
     return engine
+
+
+def seed_default_team_owners(engine: Engine) -> None:
+    """Ensure default team owner records exist."""
+    with Session(engine) as session:
+        defaults = [
+            (
+                "app-team",
+                "App Team",
+                "Application Core, Frameworks, Libraries, ORM, Testing & SCM",
+                "app-team@aegis.internal",
+                "#aegis-app-team",
+            ),
+            (
+                "sre-team",
+                "SRE Team",
+                "Domains, SSL/TLS, Edge/WAF, K8s/VMs, Databases, OS & Runtime Infrastructure",
+                "sre-team@aegis.internal",
+                "#aegis-sre-team",
+            ),
+        ]
+        for team_id, team_name, scope, email, channel in defaults:
+            existing = session.get(TeamOwnerModel, team_id)
+            if existing is None:
+                session.add(
+                    TeamOwnerModel(
+                        team_id=team_id,
+                        team_name=team_name,
+                        responsibility_scope=scope,
+                        email=email,
+                        slack_channel=channel,
+                    )
+                )
+        session.commit()
 
 
 def make_session_factory(engine: Engine) -> sessionmaker[Session]:
@@ -76,6 +124,7 @@ def upsert_certificate_observation(
             auto_renew_threshold_days=target.auto_renew_threshold_days,
             gcp_project=target.gcp_project,
             gcp_target_proxy=target.gcp_target_proxy,
+            owner_team_id=target.owner_team_id,
             active_serial_number=cert_info["serial_number_hex"],
             last_probed_at=now_utc,
         )
@@ -90,6 +139,7 @@ def upsert_certificate_observation(
         ep.auto_renew_threshold_days = target.auto_renew_threshold_days
         ep.gcp_project = target.gcp_project
         ep.gcp_target_proxy = target.gcp_target_proxy
+        ep.owner_team_id = target.owner_team_id
         ep.last_probed_at = now_utc
 
     serial_hex = cert_info["serial_number_hex"]

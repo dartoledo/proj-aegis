@@ -101,6 +101,7 @@ import { gcpCloudPosturePlugin } from './modules/gcpCloudPostureModule';
 import { livingCmdbPlugin } from './modules/livingCmdbModule';
 import { cveIntelligencePlugin } from './modules/cveIntelligenceModule';
 import { infraQualityGatePlugin } from './modules/infraQualityGateModule';
+import { infrahubAttackGraphPlugin } from './modules/infrahubAttackGraphModule';
 
 backend.add(scaffolderModuleHaproxyTls);
 backend.add(catalogModuleHaproxyTls);
@@ -122,6 +123,7 @@ backend.add(gcpCloudPosturePlugin);
 backend.add(livingCmdbPlugin);
 backend.add(cveIntelligencePlugin);
 backend.add(infraQualityGatePlugin);
+backend.add(infrahubAttackGraphPlugin);
 
 backend.start();
 

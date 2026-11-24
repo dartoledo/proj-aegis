@@ -11,6 +11,7 @@ from services.ssl_tracker.config import (
     SecretRedactingFilter,
     load_config,
 )
+from services.ssl_tracker.database import resolve_sqlalchemy_url
 
 
 def test_load_config_fails_fast_when_api_token_missing() -> None:
@@ -79,3 +80,13 @@ def test_secret_never_surfaces_in_runtime_logs(caplog: pytest.LogCaptureFixture)
     for record in caplog.records:
         assert raw_token not in record.getMessage()
         assert "***" in record.getMessage()
+
+
+def test_load_config_accepts_postgresql_db_url() -> None:
+    cfg = load_config(
+        env={
+            "AEGIS_SSL_TRACKER_API_TOKEN": "test-token-123",
+            "AEGIS_SSL_TRACKER_DB_URL": "postgresql://aegis:pass@127.0.0.1:5432/aegis",
+        }
+    )
+    assert resolve_sqlalchemy_url("postgres://aegis:pass@127.0.0.1:5432/aegis") == "postgresql://aegis:pass@127.0.0.1:5432/aegis"

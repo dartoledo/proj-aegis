@@ -154,16 +154,16 @@ export const EntityCveIntelligenceCard = () => {
                   )}
                 </td>
                 <td>
-                  {cve.package} ({cve.installedVersion} → {cve.fixedVersion})
+                  {cve.package ?? (cve as any).affectedPackage} ({cve.installedVersion} → {cve.fixedVersion})
                 </td>
                 <td>{cve.acrsScore}</td>
                 <td>
                   {cve.priorityTier}
                   <br />
-                  {cve.sla}
+                  {cve.sla ?? `${(cve as any).slaHoursRemaining ?? 24}h`}
                 </td>
                 <td>
-                  CVSS {cve.cvssScore} / EPSS {cve.epssScore} ({cve.epssPercentile}%)
+                  CVSS {cve.cvssScore ?? (cve as any).cvssV3Score} / EPSS {cve.epssScore} ({cve.epssPercentile}%)
                 </td>
                 <td>
                   {cve.reachability}
@@ -173,12 +173,12 @@ export const EntityCveIntelligenceCard = () => {
                 <td>{cve.vexStatus}</td>
                 <td>
                   <button
-                    onClick={() => handleVexAttest(cve.cveId, 'Not affected')}
+                    onClick={() => handleVexAttest(cve.cveId, 'vulnerable_code_not_in_execute_path')}
                     style={{ marginRight: 4 }}
                   >
                     Attest VEX Not Affected
                   </button>
-                  <button onClick={() => handleVexAttest(cve.cveId, 'Reset')}>Reset VEX</button>
+                  <button onClick={() => handleVexAttest(cve.cveId, 'none')}>Reset VEX</button>
                 </td>
               </tr>
             ))}
@@ -191,9 +191,9 @@ export const EntityCveIntelligenceCard = () => {
           {report.cves.map((cve) => (
             <div key={cve.cveId} style={{ marginBottom: 12 }}>
               <strong>{cve.cveId}</strong>
-              {cve.ransomwareCampaign && <span style={{ marginLeft: 8 }}>🦠 Ransomware Campaign</span>}
+              {(cve.ransomwareCampaign ?? (cve as any).ransomwareCampaignUse) && <span style={{ marginLeft: 8 }}>🦠 Ransomware Campaign</span>}
               <div style={{ marginTop: 4 }}>
-                {cve.attackPathSteps.map((step, idx) => (
+                {(cve.attackPathSteps ?? (cve as any).attackPath ?? []).map((step: any, idx: number) => (
                   <span key={idx}>
                     {idx > 0 && ' → '}
                     <span>Step {idx + 1}: {step}</span>
@@ -222,11 +222,11 @@ export const EntityCveIntelligenceCard = () => {
               </tr>
             </thead>
             <tbody>
-              {fleet.services.map((svc) => (
+              {((fleet as any).reports ?? fleet.services ?? []).map((svc: any) => (
                 <tr key={svc.serviceName}>
                   <td>{svc.serviceName}</td>
-                  <td>{svc.rawCves}</td>
-                  <td>{svc.actionableP0}</td>
+                  <td>{svc.rawCves ?? svc.rawCriticalHighCount}</td>
+                  <td>{svc.actionableP0 ?? svc.p0ImmediateCount}</td>
                   <td>{svc.noiseReductionPercent}%</td>
                 </tr>
               ))}

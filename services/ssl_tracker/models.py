@@ -15,6 +15,15 @@ class Base(DeclarativeBase):
     """SQLAlchemy declarative base."""
 
 
+class TeamOwnerModel(Base):
+    __tablename__ = "team_owners"
+    team_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    team_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    responsibility_scope: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[str] = mapped_column(String(128), nullable=False)
+    slack_channel: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
 class TrackedEndpointModel(Base):
     """Represents a single monitored endpoint within an environment (supports 1:N endpoints per env)."""
 
@@ -39,6 +48,7 @@ class TrackedEndpointModel(Base):
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
+    owner_team_id: Mapped[str] = mapped_column(String(32), ForeignKey("team_owners.team_id"), nullable=False, default="sre-team")
 
 
 class CertificateInventoryModel(Base):
@@ -122,6 +132,7 @@ class EndpointTargetInput(BaseModel):
     gcp_target_proxy: str | None = Field(default=None)
     simulate_weak_crypto: bool = Field(default=False)
     simulate_days_remaining: int | None = Field(default=None)
+    owner_team_id: str = Field(default="sre-team", pattern="^(app-team|sre-team)$")
 
 
 class ScanBatchRequest(BaseModel):
@@ -153,6 +164,7 @@ def serialize_endpoint_and_cert(
         "endpoint_id": ep.id,
         "entity_ref": ep.entity_ref,
         "service_name": ep.service_name,
+        "owner_team_id": ep.owner_team_id,
         "environment": ep.environment,
         "endpoint_key": ep.endpoint_key,
         "endpoint_url": ep.endpoint_url,

@@ -67,32 +67,8 @@ export const EntityCiamTokenDebuggerCard = () => {
   const [mintTtl, setMintTtl] = useState<number>(60);
   const [mintAlg, setMintAlg] = useState<string>('HS256');
 
-  // Auto-mint an initial demo token on first mount so the card has live data immediately
   useEffect(() => {
-    let mounted = true;
-    fetch(`${CIAM_API_BASE}/mint`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        subject: `dev-${serviceName}`,
-        roles: ['ciam:user'],
-        scope: 'ciam:read',
-        ttlMinutes: 60,
-      }),
-    })
-      .then(res => (res.ok ? res.json() : null))
-      .then(data => {
-        if (mounted && data?.token) {
-          setTokenInput(data.token);
-          setInspection(data.inspection);
-        }
-      })
-      .catch(() => {
-        // Backend might be offline during build/test; ignore gracefully
-      });
-    return () => {
-      mounted = false;
-    };
+    setMintSubject(`dev-${serviceName}`);
   }, [serviceName]);
 
   const handleInspect = async (overrideToken?: string) => {

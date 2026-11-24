@@ -256,7 +256,7 @@ export function inspectCiamToken(
   let validSignature = false;
 
   if (alg === 'none') {
-    validSignature = parts[2] === '';
+    validSignature = false;
   } else if (['HS256', 'HS384', 'HS512'].includes(alg)) {
     const hashAlg = alg === 'HS384' ? 'sha384' : alg === 'HS512' ? 'sha512' : 'sha256';
     const expectedSig = base64UrlEncode(
@@ -265,7 +265,9 @@ export function inspectCiamToken(
         .update(`${parts[0]}.${parts[1]}`)
         .digest(),
     );
-    validSignature = parts[2] === expectedSig;
+    const sigBuf = Buffer.from(parts[2] ?? '', 'utf8');
+    const expBuf = Buffer.from(expectedSig, 'utf8');
+    validSignature = sigBuf.length === expBuf.length && crypto.timingSafeEqual(sigBuf, expBuf);
   }
 
   const now = Math.floor(Date.now() / 1000);
@@ -353,7 +355,9 @@ export function inspectCiamToken(
   }
 
   let complianceStatus: 'COMPLIANT' | 'WARNING' | 'CRITICAL' | 'INVALID' = 'COMPLIANT';
-  if (!validSignature) {
+  if (alg === 'none') {
+    complianceStatus = 'CRITICAL';
+  } else if (!validSignature) {
     complianceStatus = 'INVALID';
   } else if (securityFlaws.some(f => f.severity === 'CRITICAL')) {
     complianceStatus = 'CRITICAL';

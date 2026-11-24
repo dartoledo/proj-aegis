@@ -1,6 +1,6 @@
 app:
-  title: Scaffolded Backstage App
-  baseUrl: http://localhost:3000
+  title: Aegis Unified Inventory Portal
+  baseUrl: http://localhost:3003
 
   # Enable all packages by default, this will discover packages from packages/app/package.json
   packages: all
@@ -97,7 +97,7 @@ app:
               height: 4
 
 organization:
-  name: My Company
+  name: Aegis Unified Inventory
 
 backend:
   # Used for enabling authentication, secret is shared by all backend plugins
@@ -116,14 +116,18 @@ backend:
     # Content-Security-Policy directives follow the Helmet format: https://helmetjs.github.io/#reference
     # Default Helmet Content-Security-Policy values can be removed by setting the key to false
   cors:
-    origin: http://localhost:3000
+    origin: http://localhost:3003
     methods: [GET, HEAD, PATCH, POST, PUT, DELETE]
     credentials: true
   # This is for local development only, it is not recommended to use this in production
   # The production database configuration is stored in app-config.production.yaml
   database:
-    client: better-sqlite3
-    connection: ':memory:'
+    client: pg
+    connection:
+      host: 10.43.73.79
+      port: 5432
+      user: user
+      password: password
   # see https://backstage.io/docs/ai/mcp-actions#actions-configuration for more details
   actions:
     pluginSources:
@@ -253,7 +257,7 @@ kubernetes:
           name: local-k3s
           authProvider: 'serviceAccount'
           skipTLSVerify: true
-          serviceAccountToken: 'eyJhbGciOiJSUzI1NiIsImtpZCI6ImZhTTVBb2N6ZDIwTW5wQ3Z5dXJDRm44Tm1RYTZkRlFrRnFnYmVCaTN6WXcifQ.eyJhdWQiOlsiaHR0cHM6Ly9rdWJlcm5ldGVzLmRlZmF1bHQuc3ZjLmNsdXN0ZXIubG9jYWwiLCJrM3MiXSwiZXhwIjoxNzkxMzkzMzAwLCJpYXQiOjE3OTEzODk3MDAsImlzcyI6Imh0dHBzOi8va3ViZXJuZXRlcy5kZWZhdWx0LnN2Yy5jbHVzdGVyLmxvY2FsIiwianRpIjoiNGFlZDI3M2YtZGI5NS00NGRiLWIyODQtZDY3MGM0MmM0MzJmIiwia3ViZXJuZXRlcy5pbyI6eyJuYW1lc3BhY2UiOiJkZWZhdWx0Iiwic2VydmljZWFjY291bnQiOnsibmFtZSI6ImJhY2tzdGFnZSIsInVpZCI6IjI3ZTI5MjJiLTcyY2ItNDAzOC1hYmUwLWU4MWNjMjllZDE2OCJ9fSwibmJmIjoxNzkxMzg5NzAwLCJzdWIiOiJzeXN0ZW06c2VydmljZWFjY291bnQ6ZGVmYXVsdDpiYWNrc3RhZ2UifQ.DGWfMQzjG5K9ikwEwbPUn8dqxzgNFMDzcpV5YqFmIww4FNQK8wokZmdpyv_5uyz6XLcQVsIl64Ks3BWshq3o2hTeK55ezmwxnOIis4pe7S9oO5_AWVEH0pt3U5Km1o1UDUvr4VPXoUQpYeXfTcL6X78ZELOzngq7D4AmGB_rFly0G4mlULtK_kq3Qt3z02ZeCHHOXPvKMYC8NryPRpyTPpUonC7rKyWnHbhD07Tm3mdSWFztCYk3jcpdv9ZuwhrrxVnyhmJVEvxlO-Oky_BRT_kM3_MLs_w4O3iPsBF4YMYZVCmU3y2PkNSd7WafyA9cJ1JFVsbYeMayFfZiJDcOqQ'
+          serviceAccountToken: ${K8S_SERVICE_ACCOUNT_TOKEN}
 
 # see https://backstage.io/docs/permissions/getting-started for more on the permission framework
 permission:

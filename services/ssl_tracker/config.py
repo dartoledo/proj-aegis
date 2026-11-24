@@ -94,13 +94,15 @@ def load_config(env: Mapping[str, str] | None = None) -> AppConfig:
     """Validate required environment variables once at startup and return AppConfig."""
     source = os.environ if env is None else env
 
-    for var_name in REQUIRED_ENV_VARS:
-        raw_val = source.get(var_name, "")
-        if not isinstance(raw_val, str) or not raw_val.strip():
-            raise ConfigurationError(f"Missing required environment variable: {var_name}")
+    raw_token = source.get("AEGIS_SSL_TRACKER_API_TOKEN", "")
+    if not isinstance(raw_token, str) or not raw_token.strip():
+        raise ConfigurationError("Missing required environment variable: AEGIS_SSL_TRACKER_API_TOKEN")
 
-    token = MaskedSecret(source["AEGIS_SSL_TRACKER_API_TOKEN"])
-    db_path = source["AEGIS_SSL_TRACKER_DB_PATH"].strip()
+    raw_db = source.get("AEGIS_SSL_TRACKER_DB_URL", "").strip() or source.get("AEGIS_SSL_TRACKER_DB_PATH", "").strip()
+    if not raw_db:
+        raise ConfigurationError("Missing required environment variable: AEGIS_SSL_TRACKER_DB_PATH")
+
+    token = MaskedSecret(raw_token)
     haproxy_host = source.get("AEGIS_HAPROXY_HOST", "127.0.0.1:8443").strip() or "127.0.0.1:8443"
 
     logger = logging.getLogger("ssl_tracker")
@@ -109,6 +111,6 @@ def load_config(env: Mapping[str, str] | None = None) -> AppConfig:
 
     return AppConfig(
         api_token=token,
-        db_path=db_path,
+        db_path=raw_db,
         default_haproxy_host=haproxy_host,
     )
