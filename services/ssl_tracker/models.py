@@ -202,3 +202,13 @@ def serialize_endpoint_and_cert(
             "history_count": history_count,
         },
     }
+
+
+class ActiveProbeRequest(BaseModel):
+    """Payload for active live probing of a list of endpoints."""
+
+    endpoints: list[str] = Field(..., min_length=1)
+    source_ip: str = Field(default="203.0.113.10")
+    ptr_hostnames: list[str] = Field(default_factory=list)
+    org_name: str | None = Field(default=None)
+

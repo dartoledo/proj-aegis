@@ -43,26 +43,6 @@ export function InfrastructureInventoryView() {
     [infrastructure, search, layerFilter, statusFilter],
   );
 
-  const handleReconcileDrift = (drift: UnifiedDriftRecord, action: 'sync-to-git' | 'enforce-git-state') => {
-    setDrifts(prev =>
-      prev.map(item =>
-        item.driftId === drift.driftId
-          ? {
-              ...item,
-              status: action === 'sync-to-git' ? 'RECONCILED_TO_GIT' : 'ENFORCED_FROM_GIT',
-              gitDeclaredValue: action === 'sync-to-git' ? item.liveObservedValue : item.gitDeclaredValue,
-              liveObservedValue: action === 'enforce-git-state' ? item.gitDeclaredValue : item.liveObservedValue,
-            }
-          : item,
-      ),
-    );
-    fetch('http://127.0.0.1:7007/api/living-cmdb/reconcile', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ entityRef: drift.entityRef, driftId: drift.driftId, action }),
-    }).catch(() => {});
-  };
-
   return (
     <Page themeId="tool">
       <Header
@@ -150,7 +130,6 @@ export function InfrastructureInventoryView() {
                 <th>Live Observed</th>
                 <th>Source</th>
                 <th>Status</th>
-                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -164,10 +143,6 @@ export function InfrastructureInventoryView() {
                   <td>{d.liveObservedValue}</td>
                   <td>{d.detectedSource}</td>
                   <td>{d.status}</td>
-                  <td>
-                    <button onClick={() => handleReconcileDrift(d, 'sync-to-git')}>Sync to Git</button>{' '}
-                    <button onClick={() => handleReconcileDrift(d, 'enforce-git-state')}>Enforce Git</button>
-                  </td>
                 </tr>
               ))}
             </tbody>

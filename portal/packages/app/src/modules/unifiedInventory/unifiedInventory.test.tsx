@@ -108,6 +108,130 @@ describe('Unified Inventory', () => {
     });
   });
 
+  test('DomainsEndpointsView Active Endpoint Prober probes list and displays SSL, WAF, and Zscaler/Public accessibility', async () => {
+    global.fetch = jest.fn(async (url: string) => {
+      if (url.includes('/api/ssl-tracker/probe-active')) {
+        return {
+          ok: true,
+          json: async () => ({
+            networkContext: {
+              sourceIp: '165.225.72.45',
+              isZscalerSourceIp: true,
+              networkOrigin: 'PRIVATE_NETWORK_ZSCALER',
+              detectionReason: 'Source IP 165.225.72.45 matched Zscaler Public Service Edge CIDR 165.225.0.0/16',
+            },
+            totalProbed: 1,
+            reachableCount: 1,
+            publicAccessibleCount: 0,
+            wafProtectedCount: 1,
+            results: [
+              {
+                targetInput: 'https://login.aegis.cloud.goog',
+                endpointId: 'component:default/aegis-ui:prod:login-aegis-cloud-goog',
+                endpointUrl: 'https://login.aegis.cloud.goog',
+                hostname: 'login.aegis.cloud.goog',
+                port: 443,
+                reachable: true,
+                sourceIp: '165.225.72.45',
+                isZscalerSourceIp: true,
+                probeNetworkOrigin: 'PRIVATE_NETWORK_ZSCALER',
+                accessibleFromPublicInternet: false,
+                exposureScope: 'strictly-private',
+                wafProvider: 'Akamai',
+                wafDetected: true,
+                wafEvidence: ['header: server=AkamaiGHost'],
+                httpStatusCode: 200,
+                sslDetails: {
+                  subjectCn: 'login.aegis.cloud.goog',
+                  subjectDn: 'CN=login.aegis.cloud.goog',
+                  sanDnsNames: ['login.aegis.cloud.goog'],
+                  issuerCn: 'GTS CA 1C3',
+                  issuerOrg: 'Google Trust Services LLC',
+                  serialNumberHex: '0A:1B:2C:3D',
+                  notBefore: '2026-11-01T00:00:00Z',
+                  notAfter: '2027-02-01T00:00:00Z',
+                  daysRemaining: 67,
+                  expiryStatus: 'HEALTHY',
+                  signatureAlgorithm: 'sha256WithRSAEncryption',
+                  signatureHashAlgorithm: 'SHA256',
+                  publicKeyAlgorithm: 'RSA',
+                  publicKeyBits: 2048,
+                  complianceStatus: 'COMPLIANT',
+                },
+                probedAt: '2026-11-26T00:00:00Z',
+              },
+            ],
+          }),
+        } as Response;
+      }
+      return { ok: false, status: 404 } as Response;
+    }) as unknown as typeof global.fetch;
+
+    render(<DomainsEndpointsView />);
+
+    const endpointsArea = screen.getByLabelText('Active probe endpoints list');
+    fireEvent.change(endpointsArea, { target: { value: 'https://login.aegis.cloud.goog' } });
+    const ipInput = screen.getByLabelText('Source IP override');
+    fireEvent.change(ipInput, { target: { value: '165.225.72.45' } });
+
+    const probeBtn = screen.getByText('Probe Endpoints & Persist to CMDB');
+    fireEvent.click(probeBtn);
+
+    await waitFor(() => {
+      expect(document.body.textContent).toContain('PRIVATE_NETWORK_ZSCALER');
+      expect(document.body.textContent).toContain('0A:1B:2C:3D');
+      expect(document.body.textContent).toContain('sha256WithRSAEncryption (RSA-2048)');
+      expect(document.body.textContent).toContain('Akamai');
+      expect(document.body.textContent).toContain('No (Within Private Network — Zscaler IP)');
+    });
+  });
+
+  test('DomainsEndpointsView CSV Loader submits CSV with required endpoint, service_name, environment and displays summary', async () => {
+    global.fetch = jest.fn(async (url: string) => {
+      if (url.includes('/api/ssl-tracker/import-csv')) {
+        return {
+          ok: true,
+          json: async () => ({
+            totalDataRows: 2,
+            importedCount: 1,
+            probedCount: 1,
+            probedReachableCount: 1,
+            publicAccessibleCount: 1,
+            wafProtectedCount: 1,
+            errors: [
+              {
+                rowNumber: 3,
+                message: "Row 3: Missing required 'environment' value for endpoint 'https://no-env.aegis.io'.",
+              },
+            ],
+          }),
+        } as Response;
+      }
+      return { ok: false, status: 404 } as Response;
+    }) as unknown as typeof global.fetch;
+
+    render(<DomainsEndpointsView />);
+
+    const csvTextarea = screen.getByLabelText('Domains CSV content');
+    fireEvent.change(csvTextarea, {
+      target: {
+        value: [
+          'endpoint,service_name,environment',
+          'https://auth.aegis.io,aegis-auth,prod',
+          'https://no-env.aegis.io,aegis-auth,',
+        ].join('\n'),
+      },
+    });
+
+    const importBtn = screen.getByText('Import CSV to PostgreSQL CMDB');
+    fireEvent.click(importBtn);
+
+    await waitFor(() => {
+      expect(document.body.textContent).toContain('CSV Import Summary:');
+      expect(document.body.textContent).toContain("Missing required 'environment' value");
+    });
+  });
+
   test('SoftwareInventoryView renders software taxonomy and filters by status', async () => {
     render(<SoftwareInventoryView />);
 
@@ -148,12 +272,9 @@ describe('Unified Inventory', () => {
       expect(document.body.textContent).toContain('cloudflare-api-poll');
     });
 
-    const syncButtons = screen.getAllByText('Sync to Git');
-    fireEvent.click(syncButtons[0]);
-
-    await waitFor(() => {
-      expect(document.body.textContent).toContain('RECONCILED_TO_GIT');
-    });
+    expect(document.body.textContent).toContain('Active GitOps Drifts');
+    expect(screen.queryByText('Sync to Git')).not.toBeInTheDocument();
+    expect(screen.queryByText('Enforce Git')).not.toBeInTheDocument();
 
     const statusFilter = screen.getByLabelText('Status filter') as HTMLSelectElement;
     fireEvent.change(statusFilter, { target: { value: 'DRIFTED' } });

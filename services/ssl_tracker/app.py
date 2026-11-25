@@ -9,6 +9,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response, st
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from services.ssl_tracker.active_prober import probe_endpoints_list
 from services.ssl_tracker.config import AppConfig, load_config
 from services.ssl_tracker.database import (
     create_db_engine,
@@ -16,6 +17,7 @@ from services.ssl_tracker.database import (
     upsert_certificate_observation,
 )
 from services.ssl_tracker.models import (
+    ActiveProbeRequest,
     CertificateInventoryModel,
     EndpointTargetInput,
     GcpAutoRenewRequest,
@@ -88,6 +90,17 @@ def create_app(env: Mapping[str, str] | None = None) -> FastAPI:
             "scanned_count": len(results),
             "results": results,
         }
+
+    @app.post("/api/v1/probe-active", dependencies=[Depends(verify_bearer_token)])
+    def probe_active_endpoints(
+        payload: ActiveProbeRequest,
+    ) -> dict[str, Any]:
+        return probe_endpoints_list(
+            payload.endpoints,
+            source_ip=payload.source_ip,
+            ptr_hostnames=payload.ptr_hostnames,
+            org_name=payload.org_name,
+        )
 
     @app.get("/api/v1/endpoints", dependencies=[Depends(verify_bearer_token)])
     def list_endpoints(

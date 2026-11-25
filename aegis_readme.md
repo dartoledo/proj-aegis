@@ -166,7 +166,20 @@ Project Aegis extends edge TLS visibility into a full fleet-wide **Multi-Environ
 
 4. **Scaffolder Actions & Backend API Endpoints (`/api/ssl-tracker/*`):**
    - **Scaffolder Template (`renew-gcp-lb-tls-cert`):** 4-step workflow (`resiliency:gcp-lb:authorize-dns`, `resiliency:gcp-lb:quality-gate-approval`, `resiliency:gcp-lb:renew-and-bind`, `resiliency:gcp-lb:verify-compliance`) with dynamic catalog endpoint resolution, plus `resiliency:private-lb:remediate-crypto`.
-   - **REST & Observability Routes:** `GET /status`, `GET /fleet`, `GET /history`, `POST /scan`, `POST /gcp-preview-diff`, `POST /quality-gate/decide`, `POST /gcp-auto-renew`, `POST /remediate-crypto`, and Prometheus `GET /metrics` (`aegis_ssl_endpoint_expiry_days`, `aegis_ssl_endpoint_compliant`, `aegis_ssl_endpoint_key_bits`).
+   - **REST & Observability Routes:** `GET /status`, `GET /fleet`, `GET /history`, `POST /scan`, `POST /probe-active`, `GET /prober-network-context`, `POST /import-csv`, `GET /sample-domains.csv`, `POST /gcp-preview-diff`, `POST /quality-gate/decide`, `POST /gcp-auto-renew`, `POST /remediate-crypto`, and Prometheus `GET /metrics` (`aegis_ssl_endpoint_expiry_days`, `aegis_ssl_endpoint_compliant`, `aegis_ssl_endpoint_key_bits`).
+
+5. **Active Endpoint Prober (`activeEndpointProberService.ts` & `services/ssl_tracker/active_prober.py`):**
+   - **Live 5-Pillar X.509 SSL Extraction:** Connects to real endpoints via live TLS handshake to extract **Not After / Expiry Details** (`daysRemaining`, `expiryStatus`), **Subject CN & SANs**, **Issuer CN/Org/DN**, **Serial Number** (colon-delimited hex & decimal), and **Signature Algorithm & Key Size** (`RSA`, `ECDSA`, `Ed25519` bit length).
+   - **WAF Edge Protection Fingerprinting (`Akamai` / `Fastly` / `Cloud Armor`):** Inspects live HTTPS response headers, cookies, and DNS CNAME chains to identify **Akamai** (`Server: AkamaiGHost`, `X-Akamai-*`, `Akamai-GRN`, `*.akamaiedge.net`), **Fastly** (`X-Fastly-*`, `X-Served-By: cache-*`, `X-Timer`, `*.fastly.net`), or **Google Cloud Armor** (`Server: Google Frontend` / `ESF`, `Via: 1.1 google`, `X-Cloud-Trace-Context`).
+   - **Zscaler vs. Public Internet Accessibility Logic:** Checks the prober's egress source IP against Zscaler Public Service Edge (ZIA/ZPA) CIDR blocks (`165.225.0.0/16`, `147.161.128.0/17`, `136.226.0.0/16`, `170.85.0.0/16`, `104.129.192.0/20`, `185.46.212.0/22`, `199.168.148.0/22`, `167.103.0.0/16`, `137.83.128.0/18`, etc.) and reverse DNS PTR/org names (`*.zscloud.net`, `zscaler`):
+     - If the source IP belongs to **Zscaler**, the prober assumes it is operating **within the private network** (`PRIVATE_NETWORK_ZSCALER`, `accessibleFromPublicInternet: false`).
+     - If the source IP is a **non-Zscaler IP**, the prober assumes it is probing **from the public internet** (`PUBLIC_INTERNET`, `accessibleFromPublicInternet: true` when reachable).
+
+6. **Domains CSV Loader (`domainCsvImporterService.ts` & Unified Inventory UI):**
+   - Allows bulk loading of domain lists via `.csv` file upload or direct CSV paste in **Unified Inventory — Domains & Endpoints** (`POST /api/ssl-tracker/import-csv` and template `GET /api/ssl-tracker/sample-domains.csv`).
+   - **Required CSV Columns:** `endpoint`, `service_name`, and `environment` (`dev`, `stg`, `stress-test`, `preprod`, `prod`).
+   - **Optional CSV Columns:** `endpoint_key`, `provider_type` (`gcp-cloud-lb`, `private-cloud-lb`, `haproxy-edge`), `exposure_scope`, `owner_team_id` (`sre-team`, `app-team`), and `notes`.
+   - Automatically runs the **Active Endpoint Prober** on imported domains (when enabled) and upserts all rows idempotently into PostgreSQL (`tracked_endpoints`, `certificate_inventory`, `cmdb_services`, and Layer 1 `DOMAIN_ENDPOINT` nodes in `cmdb_component_nodes`).
 
 ### Canonical 33-Category Component Taxonomy & 2-Team Ownership Split (`SRE Team` vs. `App Team`)
 
@@ -193,10 +206,90 @@ Aegis uses **Infrahub** as the Graph & AI Brain and Backstage **Tech-Insights** 
 ### Software Version Normalizer & 100% PostgreSQL Persistence (`softwareVersionNormalizerService` & `aegisPostgresStore`)
 
 - **Multi-Source EOL & CVE Version Crosswalk:** Decomposes raw software versions (SemVer, Debian epochs `1:`, OpenSSL letter patches `1.1.1w-r1`, Alpine/Debian revisions) into `purl`, `cpe23Uri`, `eolProductSlug`, `eolCycleKey` (`MAJOR`, `MAJOR_MINOR`, `MAJOR_MINOR_PATCH`), `eolApiUrl`, `vendorLifecycleStream`, `osvEcosystem`, `osvPackageName`, `nvdCpeMatchString`, `ghsaEcosystem`, `distroAdvisoryNamespace`, and a 7-element lexicographical sort array `semverSortTuple` (`INT[7]`).
-- **100% PostgreSQL Database Architecture:**
-  - **Backstage Core & Custom Plugins (`portal/app-config.yaml` & `aegisPostgresStore.ts`):** Configured on PostgreSQL (`client: pg`) with automated Knex table initialization and seeding for `team_owners`, `cmdb_services`, `cmdb_component_nodes`, `software_version_crosswalk`, `public_eol_cycles`, and `public_cve_ranges`.
+- **100% PostgreSQL Database Architecture (9 Canonical Tables):**
+  - **Backstage Core & Custom Plugins (`portal/app-config.yaml` & `aegisPostgresStore.ts`):** Configured on PostgreSQL (`client: pg`) with idempotent `ON CONFLICT DO UPDATE` seeding and live Knex read/sync paths across all 9 canonical tables (`items`, `team_owners`, `tracked_endpoints`, `certificate_inventory`, `cmdb_services`, `cmdb_component_nodes`, `software_version_crosswalk`, `public_eol_cycles`, and `public_cve_ranges`).
   - **Python SSL Tracker (`services/ssl_tracker`):** Supports `AEGIS_SSL_TRACKER_DB_URL` (`postgresql://...`) with SQLAlchemy `pool_pre_ping=True`, managing `team_owners`, `tracked_endpoints`, and `certificate_inventory`.
   - **Canonical DDL (`demo/db-init/init.sql`):** Unified PostgreSQL schema and seed script for all 9 tables.
+
+#### PostgreSQL Entity-Relationship Model: Service, Owner, Software, Infrastructure & Domains
+
+```mermaid
+erDiagram
+    team_owners ||--o{ cmdb_component_nodes : "owns (owner_team_id)"
+    team_owners ||--o{ tracked_endpoints : "owns (owner_team_id)"
+    cmdb_services ||--o{ cmdb_component_nodes : "contains (ci_id)"
+    cmdb_component_nodes ||--o| software_version_crosswalk : "normalizes (component_id)"
+    software_version_crosswalk }o--o{ public_eol_cycles : "matches (eol_product_slug, eol_cycle_key)"
+    software_version_crosswalk }o--o{ public_cve_ranges : "matches (eol_product_slug)"
+    tracked_endpoints ||--o{ certificate_inventory : "terminates TLS (endpoint_id)"
+    cmdb_services }o--o{ tracked_endpoints : "exposes (entity_ref / service_name)"
+
+    team_owners {
+        varchar team_id PK "app-team | sre-team"
+        varchar team_name
+        varchar responsibility_scope
+        varchar email
+        varchar slack_channel
+    }
+    cmdb_services {
+        varchar ci_id PK "CI-AEGIS-1001..1005"
+        varchar entity_ref
+        varchar service_name
+        varchar owner_team "Service squad"
+        varchar drift_status "IN_SYNC | DRIFT_DETECTED"
+        jsonb drift_items
+        jsonb blast_radius
+    }
+    cmdb_component_nodes {
+        varchar component_id PK
+        varchar ci_id FK "-> cmdb_services.ci_id"
+        varchar domain "INFRASTRUCTURE | SOFTWARE"
+        varchar layer_id "7 Infra Layers (nullable for Software)"
+        varchar category_type "20 Infra + 13 Software Categories"
+        varchar owner_team_id FK "-> team_owners.team_id"
+        varchar name
+        varchar version_or_identifier
+        varchar status "HEALTHY | DRIFTED | WARNING | CRITICAL"
+    }
+    software_version_crosswalk {
+        varchar component_id PK_FK "-> cmdb_component_nodes.component_id"
+        varchar purl
+        varchar cpe23_uri
+        varchar eol_product_slug
+        varchar eol_cycle_key
+        int_array semver_sort_tuple
+    }
+    tracked_endpoints {
+        serial id PK
+        varchar endpoint_uid UK
+        varchar endpoint_name "SNI Hostname / FQDN"
+        varchar protocol
+        int port
+        varchar owner_team_id FK "-> team_owners.team_id"
+        varchar environment "dev | stg | stress-test | preprod | prod"
+        varchar entity_ref
+        varchar service_name
+        varchar provider_type "gcp-cloud-lb | private-cloud-lb | haproxy-edge"
+    }
+    certificate_inventory {
+        serial id PK
+        int endpoint_id FK "-> tracked_endpoints.id"
+        varchar serial_number
+        varchar cert_issuer
+        varchar cert_subject
+        timestamp not_after
+        varchar compliance_status "COMPLIANT | WARNING | NON_COMPLIANT"
+        jsonb cert_details_json
+    }
+```
+
+| Domain Entity | PostgreSQL Table(s) | Primary Key | Foreign Keys & Join Relationships |
+| :--- | :--- | :--- | :--- |
+| **1. Owner (`Team`)** | `team_owners` | `team_id` (`app-team`, `sre-team`) | Referenced by `cmdb_component_nodes.owner_team_id` and `tracked_endpoints.owner_team_id`. Service-level squad ownership (`platform-experience`, `core-services`, `secops-iam`, `data-platform`, `edge-platform`) is stored on `cmdb_services.owner_team`. |
+| **2. Service (`CI`)** | `cmdb_services` | `ci_id` (e.g., `CI-AEGIS-1002`) | Parent configuration item (`1:N`) for all software and infrastructure nodes in `cmdb_component_nodes` (`ci_id` FK with `ON DELETE CASCADE`) and logically linked (`1:N`) to `tracked_endpoints` via `entity_ref` / `service_name`. |
+| **3. Infrastructure (7 Layers / 20 Types)** | `cmdb_component_nodes` (`domain = 'INFRASTRUCTURE'`) | `component_id` | Joins to parent service via `ci_id -> cmdb_services.ci_id` and to owning team via `owner_team_id -> team_owners.team_id` (always `sre-team`). Categorized by `layer_id` (7 architectural layers) and `category_type` (20 infrastructure types, including `DOMAIN_ENDPOINT` in Layer 1). |
+| **4. Software (13 Categories + EOL/CVE)** | `cmdb_component_nodes` (`domain = 'SOFTWARE'`) + `software_version_crosswalk` + `public_eol_cycles` + `public_cve_ranges` | `component_id` | Joins to parent service via `ci_id -> cmdb_services.ci_id` and to `team_owners.team_id` (`sre-team` for `OPERATING_SYSTEM` & `CONTAINERIZATION_SOFTWARE`; `app-team` for the other 11 categories). Has a `1:1` extension in `software_version_crosswalk` (`component_id` PK/FK `ON DELETE CASCADE`), which joins to `public_eol_cycles` on `(eol_product_slug, eol_cycle_key)` and `public_cve_ranges` on `eol_product_slug`. |
+| **5. Domains & TLS Endpoints** | `tracked_endpoints` + `certificate_inventory` (+ `cmdb_component_nodes` where `category_type = 'DOMAIN_ENDPOINT'`) | `tracked_endpoints.id` (`endpoint_uid` unique) | Each domain in `tracked_endpoints` references `owner_team_id -> team_owners.team_id` and associates with a service via `entity_ref` / `service_name`. Has a `1:N` relationship to `certificate_inventory` (`endpoint_id -> tracked_endpoints.id ON DELETE CASCADE`, unique on `(endpoint_id, serial_number)`) tracking active and historical rotated X.509 certificates. |
 
 ### Demonstrating the Quality Gates (Shift-Left)
 

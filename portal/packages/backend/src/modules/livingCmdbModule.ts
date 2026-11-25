@@ -1,8 +1,8 @@
 import { coreServices, createBackendPlugin } from '@backstage/backend-plugin-api';
 import express from 'express';
-import { getEntityCmdbSnapshot, getFleetCmdbTopology, reconcileCmdbDrift, getComponentTaxonomyCatalog, AEGIS_TEAM_OWNERS_TABLE } from './livingCmdbService';
+import { getEntityCmdbSnapshot, getFleetCmdbTopology, getComponentTaxonomyCatalog, AEGIS_TEAM_OWNERS_TABLE } from './livingCmdbService';
 import { crossCheckSoftwareVersion, SoftwareEcosystem } from './softwareVersionNormalizerService';
-import { initializeAegisPostgresSchema } from './aegisPostgresStore';
+import { getAegisPostgresTableCounts, initializeAegisPostgresSchema } from './aegisPostgresStore';
 
 export const livingCmdbPlugin = createBackendPlugin({
   pluginId: 'living-cmdb',
@@ -17,9 +17,10 @@ export const livingCmdbPlugin = createBackendPlugin({
         const router = express.Router();
         router.use(express.json());
 
+        let knexClient: any = null;
         try {
-          const knex = await database.getClient();
-          await initializeAegisPostgresSchema(knex);
+          knexClient = await database.getClient();
+          await initializeAegisPostgresSchema(knexClient);
           logger.info('Initialized Aegis PostgreSQL schema & seeds');
         } catch (err) {
           logger.warn(`PostgreSQL schema init deferred: ${err}`);
@@ -27,18 +28,18 @@ export const livingCmdbPlugin = createBackendPlugin({
 
         router.use((_req, res, next) => {
           res.header('Access-Control-Allow-Origin', '*');
-          res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+          res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
           res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
           next();
         });
 
         router.get('/entity', async (req, res) => {
           const entityRef = String(req.query.entityRef || 'component:default/aegis-backend');
-          res.json(await getEntityCmdbSnapshot(entityRef));
+          res.json(await getEntityCmdbSnapshot(entityRef, knexClient));
         });
 
         router.get('/fleet-graph', async (_req, res) => {
-          res.json(await getFleetCmdbTopology());
+          res.json(await getFleetCmdbTopology(knexClient));
         });
 
         router.get('/taxonomy', async (_req, res) => {
@@ -64,20 +65,28 @@ export const livingCmdbPlugin = createBackendPlugin({
           );
         });
 
-        router.post('/reconcile', async (req, res) => {
-          const entityRef = String(req.body?.entityRef || 'component:default/aegis-backend');
-          const action = req.body?.action === 'sync-to-git' ? 'sync-to-git' : 'enforce-git-state';
-          const driftId = req.body?.driftId ? String(req.body.driftId) : undefined;
-          res.json(await reconcileCmdbDrift(entityRef, action, driftId));
-        });
-
         router.get('/db-status', async (_req, res) => {
-          res.json({ engine: 'postgresql', tables: ['team_owners', 'cmdb_services', 'cmdb_component_nodes', 'software_version_crosswalk', 'public_eol_cycles', 'public_cve_ranges'] });
+          const counts = await getAegisPostgresTableCounts(knexClient);
+          res.json({
+            engine: 'postgresql',
+            tables: [
+              'items',
+              'team_owners',
+              'tracked_endpoints',
+              'certificate_inventory',
+              'cmdb_services',
+              'cmdb_component_nodes',
+              'software_version_crosswalk',
+              'public_eol_cycles',
+              'public_cve_ranges',
+            ],
+            rowCounts: counts,
+          });
         });
 
         httpRouter.use(router as any);
 
-        for (const p of ['/entity', '/fleet-graph', '/taxonomy', '/teams', '/normalize-version', '/reconcile', '/db-status']) {
+        for (const p of ['/entity', '/fleet-graph', '/taxonomy', '/teams', '/normalize-version', '/db-status']) {
           httpRouter.addAuthPolicy({ path: p, allow: 'unauthenticated' });
         }
 

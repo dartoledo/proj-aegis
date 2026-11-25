@@ -21,6 +21,7 @@ spec:
     displayName: App Team
     email: app-team@aegis.internal
   parent: team-aegis
+  children: []
 ---
 apiVersion: backstage.io/v1alpha1
 kind: Group
@@ -33,3 +34,4 @@ spec:
     displayName: SRE Team
     email: sre-team@aegis.internal
   parent: team-aegis
+  children: []

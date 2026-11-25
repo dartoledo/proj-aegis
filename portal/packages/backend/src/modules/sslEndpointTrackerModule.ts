@@ -27,6 +27,15 @@ import {
   scanEntityEndpoints,
   triggerMockGcpAutoRenewal,
 } from './sslEndpointTrackerService';
+import { syncSslEndpointsWithPostgres } from './aegisPostgresStore';
+import {
+  detectProberSourceIpContext,
+  probeEndpointListLive,
+} from './activeEndpointProberService';
+import {
+  importDomainsCsvToCmdb,
+  SAMPLE_DOMAINS_CSV_TEMPLATE,
+} from './domainCsvImporterService';
 
 function createGcpAuthorizeDnsAction(
   catalog: typeof catalogServiceRef.T,
@@ -584,6 +593,11 @@ export const sslEndpointTrackerPlugin = createBackendPlugin({
         });
 
         router.get('/fleet', async (_req, res) => {
+          try {
+            await syncSslEndpointsWithPostgres();
+          } catch (err) {
+            logger.warn(`PostgreSQL SSL endpoints sync skipped: ${err}`);
+          }
           res.status(200).json(getFleetSslInventory());
         });
 
@@ -607,6 +621,7 @@ export const sslEndpointTrackerPlugin = createBackendPlugin({
             const rollup = await scanEntityEndpoints(entity, {
               forceRescan: true,
             });
+            await syncSslEndpointsWithPostgres().catch(() => {});
             res.status(200).json(rollup);
           } catch (err) {
             res.status(500).json({
@@ -741,6 +756,7 @@ export const sslEndpointTrackerPlugin = createBackendPlugin({
               keyAlgorithm,
               validityDays,
             });
+            await syncSslEndpointsWithPostgres().catch(() => {});
             const updatedRollup = getEntitySslRollupFromStore(entityRef);
             res.status(200).json({
               ...renewalResult,
@@ -829,6 +845,7 @@ export const sslEndpointTrackerPlugin = createBackendPlugin({
               keyAlgorithm,
               validityDays,
             });
+            await syncSslEndpointsWithPostgres().catch(() => {});
             res.status(200).json({
               ...result,
               rollup: getEntitySslRollupFromStore(entityRef),
@@ -850,6 +867,112 @@ export const sslEndpointTrackerPlugin = createBackendPlugin({
             .send(renderSslTrackerPrometheusMetrics());
         });
 
+        router.get('/prober-network-context', async (req, res) => {
+          try {
+            const sourceIpOverride = req.query.sourceIp
+              ? String(req.query.sourceIp)
+              : undefined;
+            const orgNameOverride = req.query.orgName
+              ? String(req.query.orgName)
+              : undefined;
+            const ctx = await detectProberSourceIpContext({
+              sourceIpOverride,
+              orgNameOverride,
+            });
+            res.status(200).json(ctx);
+          } catch (err) {
+            res.status(500).json({
+              error:
+                err instanceof Error
+                  ? err.message
+                  : 'Failed to detect prober source IP network context',
+            });
+          }
+        });
+
+        router.post('/probe-active', async (req, res) => {
+          try {
+            const rawEndpoints = Array.isArray(req.body?.endpoints)
+              ? req.body.endpoints
+              : [];
+            const sourceIpOverride = req.body?.sourceIpOverride
+              ? String(req.body.sourceIpOverride)
+              : undefined;
+            const orgNameOverride = req.body?.orgNameOverride
+              ? String(req.body.orgNameOverride)
+              : undefined;
+            const persistToCmdb = req.body?.persistToCmdb !== false;
+            const timeoutMs = req.body?.timeoutMs
+              ? Number(req.body.timeoutMs)
+              : 4000;
+
+            const report = await probeEndpointListLive(rawEndpoints, {
+              sourceIpOverride,
+              orgNameOverride,
+              timeoutMs,
+              persistToStore: persistToCmdb,
+            });
+
+            if (persistToCmdb) {
+              await syncSslEndpointsWithPostgres().catch(() => {});
+            }
+
+            res.status(200).json(report);
+          } catch (err) {
+            res.status(500).json({
+              error:
+                err instanceof Error
+                  ? err.message
+                  : 'Active endpoint list probing failed',
+            });
+          }
+        });
+
+        router.get('/sample-domains.csv', async (_req, res) => {
+          res
+            .status(200)
+            .set('Content-Type', 'text/csv; charset=utf-8')
+            .set(
+              'Content-Disposition',
+              'attachment; filename="aegis-domains-template.csv"',
+            )
+            .send(`${SAMPLE_DOMAINS_CSV_TEMPLATE}\n`);
+        });
+
+        router.post('/import-csv', async (req, res) => {
+          try {
+            const csvText = String(
+              req.body?.csvContent || req.body?.csvText || '',
+            );
+            const probeOnImport = req.body?.probeOnImport !== false;
+            const sourceIpOverride = req.body?.sourceIpOverride
+              ? String(req.body.sourceIpOverride)
+              : undefined;
+            const orgNameOverride = req.body?.orgNameOverride
+              ? String(req.body.orgNameOverride)
+              : undefined;
+            const timeoutMs = req.body?.timeoutMs
+              ? Number(req.body.timeoutMs)
+              : 3500;
+
+            const report = await importDomainsCsvToCmdb({
+              csvText,
+              probeOnImport,
+              sourceIpOverride,
+              orgNameOverride,
+              timeoutMs,
+            });
+            res.status(200).json(report);
+          } catch (err) {
+            res.status(500).json({
+              error:
+                err instanceof Error
+                  ? err.message
+                  : 'Domains CSV import failed',
+            });
+          }
+        });
+
         httpRouter.use(router);
         for (const openPath of [
           '/status',
@@ -861,6 +984,10 @@ export const sslEndpointTrackerPlugin = createBackendPlugin({
           '/history',
           '/remediate-crypto',
           '/metrics',
+          '/prober-network-context',
+          '/probe-active',
+          '/sample-domains.csv',
+          '/import-csv',
         ]) {
           httpRouter.addAuthPolicy({
             path: openPath,

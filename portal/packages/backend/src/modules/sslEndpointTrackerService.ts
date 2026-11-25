@@ -1824,3 +1824,89 @@ export function clearSslTrackerStoreForTests(): void {
   remediatedWeakCryptoEndpoints.clear();
   entitySoftwareStackStore.clear();
 }
+
+export function upsertTrackedEndpointInMemory(record: TrackedSslEndpointRecord): void {
+  endpointInventoryStore.set(record.endpointId, record);
+  let historyMap = certificateHistoryStore.get(record.endpointId);
+  if (!historyMap) {
+    historyMap = new Map<string, X509CertificateComplianceDetails>();
+    certificateHistoryStore.set(record.endpointId, historyMap);
+  }
+  historyMap.set(record.certificate.serialNumberHex, { ...record.certificate });
+}
+
+export function removeTrackedEndpointFromMemory(endpointId: string): void {
+  endpointInventoryStore.delete(endpointId);
+  certificateHistoryStore.delete(endpointId);
+}
+
+export async function hydrateTrackedEndpointRecordFromDbRow(params: {
+  endpointId: string;
+  entityRef: string;
+  serviceName: string;
+  environment: SslEnvironmentTier;
+  endpointKey: string;
+  endpointUrl: string;
+  sniHostname?: string;
+  providerType?: SslProviderType;
+  renewalMode?: SslRenewalMode;
+  autoRenewThresholdDays?: number;
+  gcpProject?: string | null;
+  gcpTargetProxy?: string | null;
+  exposureScope?: IngressExposureScope;
+  dnsScope?: DnsResolutionScope;
+  ingressType?: string;
+  lastProbedAt?: string;
+  certificateDetails?: X509CertificateComplianceDetails | null;
+}): Promise<TrackedSslEndpointRecord> {
+  const providerType = params.providerType || 'gcp-cloud-lb';
+  const renewalMode = params.renewalMode || 'workflow-auto-renew';
+  const autoRenewThresholdDays = params.autoRenewThresholdDays ?? 30;
+
+  let certificate: X509CertificateComplianceDetails;
+  if (params.certificateDetails && params.certificateDetails.serialNumberHex) {
+    certificate = params.certificateDetails;
+  } else {
+    const target: ParsedAnnotationEndpoint = {
+      entityRef: params.entityRef,
+      serviceName: params.serviceName,
+      environment: params.environment,
+      endpointKey: params.endpointKey,
+      endpointUrl: params.endpointUrl,
+      providerType,
+      renewalMode,
+      autoRenewThresholdDays,
+      gcpProject: params.gcpProject ?? null,
+      gcpTargetProxy: params.gcpTargetProxy ?? null,
+      simulateWeakCrypto: false,
+      simulateDaysRemaining: null,
+      exposureScope: params.exposureScope,
+      dnsScope: params.dnsScope,
+      ingressType: params.ingressType,
+    };
+    certificate = await buildCertificateDetailsForTarget(target);
+  }
+
+  const record: TrackedSslEndpointRecord = {
+    endpointId: params.endpointId,
+    entityRef: params.entityRef,
+    serviceName: params.serviceName,
+    environment: params.environment,
+    endpointKey: params.endpointKey,
+    endpointUrl: params.endpointUrl,
+    sniHostname: params.sniHostname || extractHostnameFromUrl(params.endpointUrl),
+    providerType,
+    renewalMode,
+    autoRenewThresholdDays,
+    gcpProject: params.gcpProject ?? null,
+    gcpTargetProxy: params.gcpTargetProxy ?? null,
+    exposureScope: params.exposureScope,
+    dnsScope: params.dnsScope,
+    ingressType: params.ingressType,
+    lastProbedAt: params.lastProbedAt || new Date().toISOString(),
+    certificate,
+  };
+
+  upsertTrackedEndpointInMemory(record);
+  return record;
+}

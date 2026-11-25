@@ -102,28 +102,15 @@ export const EntityLivingCmdbCard = () => {
     fetchData();
   }, [entityRef]);
 
-  const handleReconcile = async (action: 'sync-to-git' | 'enforce-git-state', driftId?: string) => {
-    const body: Record<string, string> = { entityRef, action };
-    if (driftId) {
-      body.driftId = driftId;
-    }
-    await fetch(`http://127.0.0.1:7007/api/living-cmdb/reconcile`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    fetchData();
-  };
-
   if (loading || !snapshot) {
-    return <InfoCard title="🧭 Autonomous Living CMDB & Drift Reconciler">Loading…</InfoCard>;
+    return <InfoCard title="🧭 Autonomous Living CMDB & Drift Detection">Loading…</InfoCard>;
   }
 
   const driftColor = snapshot.driftStatus === 'IN_SYNC' ? '#2e7d32' : '#d32f2f';
 
   return (
     <InfoCard
-      title={`🧭 Autonomous Living CMDB & Drift Reconciler — ${snapshot.ciId} (${snapshot.serviceName})`}
+      title={`🧭 Autonomous Living CMDB & Drift Detection — ${snapshot.ciId} (${snapshot.serviceName})`}
     >
       <div style={{ marginBottom: 12 }}>
         <span style={{ marginRight: 16 }}>Owner Team: {snapshot.ownerTeam}</span>
@@ -136,15 +123,6 @@ export const EntityLivingCmdbCard = () => {
         </span>
         <span style={{ marginRight: 16 }}>Replicas: {(snapshot as any).declaredReplicas ?? snapshot.replicas} vs {(snapshot as any).observedReplicas ?? snapshot.replicas}</span>
         <span style={{ marginRight: 16 }}>Image Digest: {snapshot.imageDigest ?? (snapshot as any).observedImageDigest}</span>
-      </div>
-      <div style={{ marginBottom: 12 }}>
-        <button
-          style={{ marginRight: 8 }}
-          onClick={() => handleReconcile('sync-to-git')}
-        >
-          ✅ Sync Runtime to Git
-        </button>
-        <button onClick={() => handleReconcile('enforce-git-state')}>🛡️ Enforce Git Intent</button>
       </div>
       <div style={{ marginBottom: 8 }}>
         <button
@@ -183,7 +161,6 @@ export const EntityLivingCmdbCard = () => {
               <th>Live Observed</th>
               <th>Source</th>
               <th>Status</th>
-              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -196,17 +173,6 @@ export const EntityLivingCmdbCard = () => {
                 <td>{item.liveObserved ?? (item as any).liveObservedValue}</td>
                 <td>{item.source ?? (item as any).detectedSource}</td>
                 <td>{item.status ?? (item as any).reconciliationStatus}</td>
-                <td>
-                  <button
-                    style={{ marginRight: 4 }}
-                    onClick={() => handleReconcile('sync-to-git', item.id ?? (item as any).driftId)}
-                  >
-                    Sync to Git
-                  </button>
-                  <button onClick={() => handleReconcile('enforce-git-state', item.id ?? (item as any).driftId)}>
-                    Enforce Git
-                  </button>
-                </td>
               </tr>
             ))}
           </tbody>

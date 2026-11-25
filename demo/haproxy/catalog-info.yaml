@@ -84,8 +84,8 @@ metadata:
     goharbor.io/image-tag: 'v1.4.0'
     endoflife.date/products: 'haproxy@3.0,haproxy@1.8,nodejs@22,openssl@3.2,alpine@3.20'
     resiliency.idp/cert-provider: "Self-Signed (OpenSSL)"
-    resiliency.idp/cert-version: "v1 (Serial: 10:DC:CE:21:E4:5C:BF:A7:2D:03:D0:F8:0A:EE:FF:D3:69:2C:A2:F4)"
-    resiliency.idp/cert-expiry: "2027-02-22T14:59:34.000Z"
+    resiliency.idp/cert-version: "v1 (Serial: 42:77:67:DF:48:79:73:95:F9:AC:5A:52:A8:CB:6F:F8:DA:B9:2C:58)"
+    resiliency.idp/cert-expiry: "2027-02-23T17:26:00.000Z"
     resiliency.idp/days-remaining: "90"
     resiliency.idp/cert-status: "Healthy"
     resiliency.idp/haproxy-host: "127.0.0.1:8443"

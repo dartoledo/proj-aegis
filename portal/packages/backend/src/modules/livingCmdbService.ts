@@ -3,6 +3,7 @@ import {
   NormalizedSoftwareVersionRecord,
   VersionCrossCheckResult,
 } from './softwareVersionNormalizerService';
+import { queryEntityCmdbSnapshotFromPostgres, queryFleetCmdbTopologyFromPostgres } from './aegisPostgresStore';
 
 export type DriftCategory = 'EXPOSURE_DRIFT' | 'IMMUTABILITY_DRIFT' | 'CAPACITY_DRIFT' | 'SHADOW_RESOURCE';
 export type DriftSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
@@ -156,7 +157,7 @@ export interface CmdbDriftItem {
   liveObservedValue: string;
   detectedSource: string;
   detectedAt: string;
-  status: 'ACTIVE_DRIFT' | 'RECONCILED_TO_GIT' | 'ENFORCED_FROM_GIT';
+  status: 'ACTIVE_DRIFT';
   remediationHint: string;
 }
 
@@ -492,12 +493,6 @@ export const CMDB_SERVICE_SEEDS: Record<string, Omit<EntityCmdbSnapshot, 'driftS
   },
 };
 
-const RECONCILED_CMDB_STATE = new Map<string, Omit<EntityCmdbSnapshot, 'driftStatus' | 'activeDriftCount' | 'lastReconciledAt'>>();
-
-export function resetCmdbReconciliationState(): void {
-  RECONCILED_CMDB_STATE.clear();
-}
-
 export function resolveCmdbServiceKey(entityOrRef: string): string {
   const raw = entityOrRef.split('/').pop()?.split(':').pop() || 'aegis-ui';
   if (raw === 'haproxy-hello-world-tls') {
@@ -538,15 +533,31 @@ function buildCmdbSnapshot(seed: Omit<EntityCmdbSnapshot, 'driftStatus' | 'activ
   };
 }
 
-export async function getEntityCmdbSnapshot(entityRef: string): Promise<EntityCmdbSnapshot> {
+export async function getEntityCmdbSnapshot(entityRef: string, knex?: any): Promise<EntityCmdbSnapshot> {
+  try {
+    const fromDb = await queryEntityCmdbSnapshotFromPostgres(entityRef, knex);
+    if (fromDb) {
+      return fromDb;
+    }
+  } catch {
+    // Fall back to seed snapshot when DB client is unavailable
+  }
   const key = resolveCmdbServiceKey(entityRef);
-  const seed = RECONCILED_CMDB_STATE.get(key) || CMDB_SERVICE_SEEDS[key];
+  const seed = CMDB_SERVICE_SEEDS[key];
   return buildCmdbSnapshot(seed);
 }
 
-export async function getFleetCmdbTopology(): Promise<FleetCmdbTopologyReport> {
+export async function getFleetCmdbTopology(knex?: any): Promise<FleetCmdbTopologyReport> {
+  try {
+    const fromDb = await queryFleetCmdbTopologyFromPostgres(knex);
+    if (fromDb) {
+      return fromDb;
+    }
+  } catch {
+    // Fall back to seed topology when DB client is unavailable
+  }
   const keys = Object.keys(CMDB_SERVICE_SEEDS);
-  const snapshots = await Promise.all(keys.map(k => getEntityCmdbSnapshot(k)));
+  const snapshots = await Promise.all(keys.map(k => getEntityCmdbSnapshot(k, knex)));
   const driftedServicesCount = snapshots.filter(s => s.activeDriftCount > 0).length;
   const totalActiveDrifts = snapshots.reduce((sum, s) => sum + s.activeDriftCount, 0);
   const shadowResourcesDetected = snapshots.reduce((sum, s) => sum + s.driftItems.filter(d => d.status === 'ACTIVE_DRIFT' && d.category === 'SHADOW_RESOURCE').length, 0);
@@ -568,29 +579,4 @@ export async function getFleetCmdbTopology(): Promise<FleetCmdbTopologyReport> {
   };
 }
 
-export async function reconcileCmdbDrift(entityRef: string, action: 'sync-to-git' | 'enforce-git-state', driftId?: string): Promise<EntityCmdbSnapshot> {
-  const key = resolveCmdbServiceKey(entityRef);
-  const current = JSON.parse(JSON.stringify(RECONCILED_CMDB_STATE.get(key) || CMDB_SERVICE_SEEDS[key]));
-  current.driftItems = current.driftItems.map((item: CmdbDriftItem) => {
-    if (driftId && item.driftId !== driftId) return item;
-    return {
-      ...item,
-      status: action === 'sync-to-git' ? 'RECONCILED_TO_GIT' : 'ENFORCED_FROM_GIT',
-      gitDeclaredValue: action === 'sync-to-git' ? item.liveObservedValue : item.gitDeclaredValue,
-      liveObservedValue: action === 'enforce-git-state' ? item.gitDeclaredValue : item.liveObservedValue,
-    };
-  });
-  if (!driftId || current.driftItems.every((d: CmdbDriftItem) => d.status !== 'ACTIVE_DRIFT')) {
-    if (action === 'sync-to-git') {
-      current.declaredReplicas = current.observedReplicas;
-      current.declaredImageDigest = current.observedImageDigest;
-      current.declaredExposureTier = current.observedExposureTier;
-    } else {
-      current.observedReplicas = current.declaredReplicas;
-      current.observedImageDigest = current.declaredImageDigest;
-      current.observedExposureTier = current.declaredExposureTier;
-    }
-  }
-  RECONCILED_CMDB_STATE.set(key, current);
-  return buildCmdbSnapshot(current);
-}
+

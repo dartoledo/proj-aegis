@@ -46,7 +46,7 @@ spec:
           type: string
           default: HS256
           enum: [HS256, HS384, HS512]
-          description: Enforced cryptographic algorithm (alg: none is prohibited by Aegis quality gates)
+          description: 'Enforced cryptographic algorithm (alg: none is prohibited by Aegis quality gates)'
         defaultRoles:
           title: Default Service Roles
           type: array
